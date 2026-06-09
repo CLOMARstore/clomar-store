@@ -27,7 +27,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V25.4 POS Ultrafluido + Ticket Pro"
+APP_VERSION = "V25.5 POS cálido + importación segura + ticket térmico"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -296,7 +296,7 @@ def init_db():
         "telefono": "",
         "direccion": "",
         "mensaje_comprobante": "Gracias por su compra.",
-        "color_principal": "#0f172a",
+        "color_principal": "#E49A86",
         "catalogo_base_url": "https://clomar-store.streamlit.app",
         "imagenes_base_url": "https://raw.githubusercontent.com/CLOMARstore/clomar-store/main/imagenes_productos",
         "whatsapp_codigo_pais": "51",
@@ -394,6 +394,83 @@ def normalize_code(c):
     if s.endswith(".0"):
         s = s[:-2]
     return s
+
+
+def code_match_key(c):
+    """Clave normalizada para evitar duplicados: 3, 03 y 0003 se tratan como el mismo producto."""
+    s = normalize_code(c)
+    if not s:
+        return ""
+    if s.isdigit():
+        return s.lstrip("0") or "0"
+    return s.lower()
+
+
+def find_product_id_by_code_conn(conn, codigo: str):
+    codigo = normalize_code(codigo)
+    if not codigo:
+        return None
+    # Exacto primero; luego equivalente sin ceros a la izquierda. Funciona en PostgreSQL y SQLite.
+    return conn.execute(text("""
+        SELECT id_producto FROM productos
+        WHERE COALESCE(codigo,'') = :c
+           OR LOWER(COALESCE(codigo,'')) = LOWER(:c)
+           OR LTRIM(COALESCE(codigo,''), '0') = LTRIM(:c, '0')
+        ORDER BY
+           CASE WHEN COALESCE(codigo,'') = :c THEN 0 ELSE 1 END,
+           CASE WHEN COALESCE(estado,'Activo') = 'Activo' THEN 0 ELSE 1 END,
+           LENGTH(COALESCE(codigo,'')) DESC,
+           id_producto ASC
+        LIMIT 1
+    """), {"c": codigo}).scalar()
+
+
+def merge_duplicate_products_by_code(conn=None):
+    """Une productos duplicados por código normalizado sin borrar historial.
+    Mueve stock y detalle de ventas al producto principal e inactiva duplicados.
+    """
+    own = conn is None
+    if own:
+        conn_ctx = ENGINE.begin()
+        conn = conn_ctx.__enter__()
+    try:
+        rows = conn.execute(text("""
+            SELECT id_producto, codigo, nombre_producto, estado
+            FROM productos
+            WHERE COALESCE(codigo,'') <> ''
+            ORDER BY id_producto
+        """)).mappings().all()
+        groups = {}
+        for r in rows:
+            k = code_match_key(r.get('codigo'))
+            if k:
+                groups.setdefault(k, []).append(dict(r))
+        merged = 0
+        for k, items in groups.items():
+            if len(items) <= 1:
+                continue
+            # Conserva como principal el código más completo, por ejemplo 0003 antes que 3.
+            items_sorted = sorted(items, key=lambda x: (0 if str(x.get('estado') or 'Activo') == 'Activo' else 1, -len(str(x.get('codigo') or '')), int(x.get('id_producto') or 0)))
+            primary = items_sorted[0]
+            primary_id = int(primary['id_producto'])
+            for dup in items_sorted[1:]:
+                dup_id = int(dup['id_producto'])
+                old_code = str(dup.get('codigo') or '')
+                conn.execute(text("UPDATE movimientos_stock SET id_producto=:p WHERE id_producto=:d"), {"p": primary_id, "d": dup_id})
+                conn.execute(text("UPDATE detalle_ventas SET id_producto=:p WHERE id_producto=:d"), {"p": primary_id, "d": dup_id})
+                conn.execute(text("""
+                    UPDATE productos
+                    SET estado='Inactivo', codigo=:new_code, actualizado_en=CURRENT_TIMESTAMP
+                    WHERE id_producto=:d
+                """), {"new_code": f"{old_code}-DUP-{dup_id}", "d": dup_id})
+                merged += 1
+        if own:
+            conn_ctx.__exit__(None, None, None)
+        return merged
+    except Exception:
+        if own:
+            conn_ctx.__exit__(*__import__('sys').exc_info())
+        raise
 
 
 def wa_link(producto: str = ""):
@@ -508,11 +585,11 @@ def clear_report_cache():
 # ESTILOS
 # ============================================================
 def inject_css():
-    color = get_setting("color_principal", "#0f172a") or "#0f172a"
+    color = get_setting("color_principal", "#E49A86") or "#E49A86"
     st.markdown(f"""
     <style>
-    :root {{ --primary:{color}; --dark:#0f172a; --muted:#64748b; --line:#e5e7eb; --bg:#f6f8fc; --danger:#ef4444; --ok:#16a34a; }}
-    .stApp {{ background:#f6f8fc; color:#111827; }}
+    :root {{ --primary:{color}; --warm:#E49A86; --warm-dark:#C87966; --dark:#0f172a; --muted:#64748b; --line:#e5e7eb; --bg:#f7f4f2; --danger:#b42318; --ok:#16a34a; }}
+    .stApp {{ background:#f7f4f2; color:#111827; }}
     header[data-testid="stHeader"] {{ background:#0b0f19; }}
     .block-container {{ padding-top:.65rem; padding-bottom:2.0rem; max-width:1480px; }}
     section[data-testid="stSidebar"] {{ background:#ffffff; border-right:1px solid #e5e7eb; }}
@@ -529,16 +606,16 @@ def inject_css():
     .kpi-label {{ color:#6b7280; font-size:13px; font-weight:900; letter-spacing:.06em; text-transform:uppercase; }}
     .kpi-value {{ color:#0f172a; font-size:34px; font-weight:950; margin-top:12px; }}
     .product-card {{ overflow:hidden; min-height:310px; display:flex; flex-direction:column; gap:9px; }}
-    .product-img-wrap {{ width:100%; height:190px; background:linear-gradient(135deg,#fff7ed,#fdf2f8); border:1px solid #eef2f7; border-radius:16px; overflow:hidden; display:flex; align-items:center; justify-content:center; margin-bottom:8px; }}
+    .product-img-wrap {{ width:100%; height:190px; background:linear-gradient(135deg,#fff7ed,#fff1f2); border:1px solid #eef2f7; border-radius:16px; overflow:hidden; display:flex; align-items:center; justify-content:center; margin-bottom:8px; }}
     .product-img-wrap.no-img::after {{ content:'🛍️'; font-size:58px; opacity:.65; }}
-    .product-img {{ width:100%; height:100%; object-fit:cover; display:block; }}
+    .product-img {{ width:100%; height:100%; object-fit:contain; display:block; background:#fff; }}
     .product-name {{ font-weight:950; font-size:18px; line-height:1.3; color:#111827; }}
     .product-meta {{ color:#64748b; font-size:13px; line-height:1.45; }}
     .product-desc {{ color:#64748b; font-size:13px; line-height:1.35; min-height:20px; }}
     .product-price {{ font-size:28px; font-weight:950; color:#0f172a; margin-top:6px; }}
     .chip {{ display:inline-block; border-radius:999px; padding:7px 12px; font-weight:900; font-size:12px; margin:3px 4px 0 0; border:1px solid #e5e7eb; background:#f8fafc; color:#111827; }}
     .chip-ok {{ background:#dcfce7; color:#166534; border-color:#bbf7d0; }}
-    .chip-red {{ background:#fee2e2; color:#991b1b; border-color:#fecaca; }}
+    .chip-red {{ background:#fff1ed; color:#9f1239; border-color:#fecdd3; }}
     .chip-dark {{ background:#0f172a; color:#fff; border-color:#0f172a; }}
     .chip-warn {{ background:#fef3c7; color:#92400e; border-color:#fde68a; }}
     .success-panel {{ background:#fff; border:1px solid #e5e7eb; border-radius:24px; padding:36px; text-align:center; box-shadow:0 10px 30px rgba(15,23,42,.08); margin:22px 0; }}
@@ -550,9 +627,9 @@ def inject_css():
     div[data-testid="stWidgetLabel"], div[data-testid="stWidgetLabel"] *, label {{ color:#111827 !important; opacity:1 !important; font-weight:800 !important; }}
     .stMarkdown:not(.clomar-hero) p, .stMarkdown:not(.clomar-hero) span {{ color:inherit; }}
     .stButton > button, .stDownloadButton > button {{ border-radius:12px !important; min-height:44px; font-weight:900 !important; color:#111827 !important; background:#ffffff !important; border:1px solid #cbd5e1 !important; }}
-    .stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"] {{ background:#0f172a !important; color:#fff !important; border:1px solid #0f172a !important; }}
+    .stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"] {{ background:var(--warm) !important; color:#fff !important; border:1px solid var(--warm-dark) !important; box-shadow:0 8px 18px rgba(228,154,134,.22) !important; }}
     .stButton > button[kind="primary"] *, .stDownloadButton > button[kind="primary"] * {{ color:#fff !important; }}
-    .stButton > button:hover, .stDownloadButton > button:hover {{ filter:brightness(.98); border-color:#0f172a !important; }}
+    .stButton > button:hover, .stDownloadButton > button:hover {{ filter:brightness(.98); border-color:var(--warm-dark) !important; }}
     div[data-testid="stAlert"] {{ border-radius:14px; color:#111827 !important; }}
     .dataframe, table {{ color:#111827 !important; }}
     .clomar-table {{ width:100%; border-collapse:collapse; background:#fff; border-radius:18px; overflow:hidden; box-shadow:0 8px 25px rgba(15,23,42,.06); }}
@@ -596,7 +673,7 @@ def inject_css():
     button, button * {{ opacity:1 !important; }}
     .stButton > button:disabled, .stDownloadButton > button:disabled {{ color:#64748b !important; background:#f1f5f9 !important; border-color:#e2e8f0 !important; opacity:1 !important; }}
     div[data-testid="stTabs"] button, div[data-testid="stTabs"] button * {{ color:#111827 !important; opacity:1 !important; font-weight:900 !important; }}
-    div[data-testid="stTabs"] button[aria-selected="true"], div[data-testid="stTabs"] button[aria-selected="true"] * {{ color:#ef4444 !important; }}
+    div[data-testid="stTabs"] button[aria-selected="true"], div[data-testid="stTabs"] button[aria-selected="true"] * {{ color:var(--warm-dark) !important; }}
     .pos-panel {{ background:#fff; border:1px solid #e5e7eb; border-radius:18px; padding:18px; box-shadow:0 8px 24px rgba(15,23,42,.05); }}
     .pos-panel h2, .pos-panel h3 {{ color:#0f172a !important; margin-top:0; }}
     .pos-total-banner {{ background:#0f172a; color:#fff !important; border-radius:18px; padding:18px 20px; display:flex; align-items:center; justify-content:space-between; margin:10px 0 16px; }}
@@ -1378,6 +1455,11 @@ def page_productos():
                 plantilla.to_excel(writer, index=False, sheet_name="productos")
             buf.seek(0)
             st.download_button("⬇️ Descargar plantilla Excel", data=buf, file_name="plantilla_productos_clomar_store.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            if st.button("🧹 Unificar productos duplicados por código", use_container_width=True):
+                dep = merge_duplicate_products_by_code()
+                clear_product_cache()
+                st.success(f"Depuración terminada. Duplicados unificados: {dep}.")
+                st.rerun()
             up = st.file_uploader("Subir Excel de productos", type=["xlsx", "xls"])
             if up:
                 df = pd.read_excel(up, dtype={"codigo": str})
@@ -1391,6 +1473,7 @@ def page_productos():
                     st.dataframe(df.head(20), use_container_width=True)
                     if st.button("Importar / actualizar productos", type="primary", use_container_width=True):
                         creados = actualizados = categorias_creadas = 0
+                        pre_depurados = merge_duplicate_products_by_code()
                         with ENGINE.begin() as conn:
                             for _, row in df.iterrows():
                                 codigo = normalize_code(row.get("codigo"))
@@ -1398,10 +1481,10 @@ def page_productos():
                                 if not codigo or not nombre:
                                     continue
                                 cat_name = str(row.get("categoria") or "General").strip() or "General"
-                                cat_id = conn.execute(text("SELECT id_categoria FROM categorias WHERE nombre_categoria=:n"), {"n": cat_name}).scalar()
+                                cat_id = conn.execute(text("SELECT id_categoria FROM categorias WHERE lower(nombre_categoria)=lower(:n)"), {"n": cat_name}).scalar()
                                 if not cat_id:
                                     conn.execute(text("INSERT INTO categorias (nombre_categoria, descripcion, estado) VALUES (:n,'Importada desde Excel','Activo')"), {"n": cat_name})
-                                    cat_id = conn.execute(text("SELECT id_categoria FROM categorias WHERE nombre_categoria=:n"), {"n": cat_name}).scalar()
+                                    cat_id = conn.execute(text("SELECT id_categoria FROM categorias WHERE lower(nombre_categoria)=lower(:n)"), {"n": cat_name}).scalar()
                                     categorias_creadas += 1
                                 costo = float(row.get("costo") or 0); precio = float(row.get("precio") or 0); stock = float(row.get("stock") or 0)
                                 stock_min = float(row.get("stock_minimo") or 0) if "stock_minimo" in df.columns else 0
@@ -1409,25 +1492,26 @@ def page_productos():
                                 marca = str(row.get("marca") or "").strip() if "marca" in df.columns else ""
                                 desc = str(row.get("descripcion") or "").strip() if "descripcion" in df.columns else ""
                                 estado = str(row.get("estado") or "Activo").strip() if "estado" in df.columns else "Activo"
-                                idp = conn.execute(text("SELECT id_producto FROM productos WHERE codigo=:c"), {"c": codigo}).scalar()
+                                idp = find_product_id_by_code_conn(conn, codigo)
                                 if idp:
                                     conn.execute(text("""
-                                        UPDATE productos SET nombre_producto=:n,id_categoria=:cat,marca=:m,descripcion=:d,costo_unitario=:cu,precio_venta=:pv,stock_minimo=:sm,imagen_url=COALESCE(NULLIF(:img,''),imagen_url),estado=:e,actualizado_en=CURRENT_TIMESTAMP WHERE id_producto=:id
-                                    """), {"n": nombre, "cat": cat_id, "m": marca, "d": desc, "cu": costo, "pv": precio, "sm": stock_min, "img": imagen_url, "e": estado, "id": idp})
+                                        UPDATE productos SET codigo=:codigo,nombre_producto=:n,id_categoria=:cat,marca=:m,descripcion=:d,costo_unitario=:cu,precio_venta=:pv,stock_minimo=:sm,imagen_url=COALESCE(NULLIF(:img,''),imagen_url),estado=:e,actualizado_en=CURRENT_TIMESTAMP WHERE id_producto=:id
+                                    """), {"codigo": codigo, "n": nombre, "cat": cat_id, "m": marca, "d": desc, "cu": costo, "pv": precio, "sm": stock_min, "img": imagen_url, "e": estado, "id": idp})
                                     actualizados += 1
                                 else:
                                     conn.execute(text("""
                                         INSERT INTO productos (codigo,nombre_producto,id_categoria,marca,descripcion,costo_unitario,precio_venta,stock_minimo,imagen_url,estado)
                                         VALUES (:c,:n,:cat,:m,:d,:cu,:pv,:sm,:img,:e)
                                     """), {"c": codigo, "n": nombre, "cat": cat_id, "m": marca, "d": desc, "cu": costo, "pv": precio, "sm": stock_min, "img": imagen_url, "e": estado})
-                                    idp = conn.execute(text("SELECT id_producto FROM productos WHERE codigo=:c"), {"c": codigo}).scalar()
+                                    idp = find_product_id_by_code_conn(conn, codigo)
                                     creados += 1
                                 current_stock = conn.execute(text(f"SELECT {stock_expr_sql()} FROM movimientos_stock ms WHERE ms.id_producto=:id"), {"id": idp}).scalar() or 0
                                 delta = stock - float(current_stock)
                                 if abs(delta) > 0.0001:
                                     conn.execute(text("INSERT INTO movimientos_stock (id_producto,tipo,cantidad,costo_unitario,referencia,id_usuario,observacion) VALUES (:id,'AJUSTE',:cant,:cu,'Importación Excel',:uid,'Ajuste de stock desde Excel')"), {"id": idp, "cant": delta, "cu": costo, "uid": current_user()["id_usuario"]})
+                        depurados = pre_depurados + merge_duplicate_products_by_code()
                         clear_product_cache()
-                        st.success(f"Importación terminada. Creados: {creados}. Actualizados: {actualizados}. Categorías nuevas: {categorias_creadas}.")
+                        st.success(f"Importación terminada. Creados: {creados}. Actualizados: {actualizados}. Categorías nuevas: {categorias_creadas}. Duplicados depurados: {depurados}.")
                         st.rerun()
 
 
@@ -1703,16 +1787,18 @@ def page_reportes():
     ventas["dia"] = pd.to_datetime(ventas["fecha"]).dt.date
     diario = ventas.groupby("dia", as_index=False)["total_venta"].sum()
     fig = px.line(diario, x="dia", y="total_venta", markers=True, title="Ventas por día")
-    fig.update_layout(plot_bgcolor="white", paper_bgcolor="white", font_color="#111827")
+    fig.update_layout(template="plotly_white", plot_bgcolor="white", paper_bgcolor="white", font_color="#111827", title_font_color="#111827")
+    fig.update_xaxes(color="#111827", gridcolor="#e5e7eb")
+    fig.update_yaxes(color="#111827", gridcolor="#e5e7eb")
     st.plotly_chart(fig, use_container_width=True)
     a,b=st.columns(2)
     with a:
         metodo=ventas.groupby("metodo_pago", as_index=False)["total_venta"].sum()
-        fig2=px.pie(metodo, names="metodo_pago", values="total_venta", title="Métodos de pago"); fig2.update_layout(paper_bgcolor="white", font_color="#111827")
+        fig2=px.pie(metodo, names="metodo_pago", values="total_venta", title="Métodos de pago"); fig2.update_layout(template="plotly_white", paper_bgcolor="white", font_color="#111827", title_font_color="#111827")
         st.plotly_chart(fig2, use_container_width=True)
     with b:
         vendedor=ventas.groupby("vendedor_nombre", as_index=False)["total_venta"].sum()
-        fig3=px.bar(vendedor, x="vendedor_nombre", y="total_venta", title="Ventas por vendedor"); fig3.update_layout(plot_bgcolor="white", paper_bgcolor="white", font_color="#111827")
+        fig3=px.bar(vendedor, x="vendedor_nombre", y="total_venta", title="Ventas por vendedor"); fig3.update_layout(template="plotly_white", plot_bgcolor="white", paper_bgcolor="white", font_color="#111827", title_font_color="#111827"); fig3.update_xaxes(color="#111827", gridcolor="#e5e7eb"); fig3.update_yaxes(color="#111827", gridcolor="#e5e7eb")
         st.plotly_chart(fig3, use_container_width=True)
     if not detalle.empty:
         dd=detalle.copy(); dd["total"]=dd["total_vendido"].apply(money); dd["utilidad_fmt"]=dd["utilidad"].apply(money)
@@ -1779,7 +1865,7 @@ def page_config_tienda():
             mensaje=st.text_input("Mensaje del comprobante", value=cfg.get("mensaje_comprobante", "Gracias por su compra."))
             base_cat=st.text_input("URL base de catálogo público", value=cfg.get("catalogo_base_url", "https://clomar-store.streamlit.app"))
             base_imgs=st.text_input("URL base automática de imágenes", value=cfg.get("imagenes_base_url", "https://raw.githubusercontent.com/CLOMARstore/clomar-store/main/imagenes_productos"))
-            color=st.color_picker("Color principal", value=cfg.get("color_principal", "#0f172a"))
+            color=st.color_picker("Color principal", value=cfg.get("color_principal", "#E49A86"))
             if st.form_submit_button("Guardar configuración", type="primary", use_container_width=True):
                 for k,v in {"store_name":store_name,"logo_url":logo_url,"icon_url":icon_url,"telefono":telefono,"direccion":direccion,"mensaje_comprobante":mensaje,"catalogo_base_url":base_cat,"imagenes_base_url":base_imgs,"color_principal":color}.items():
                     set_setting(k,v)
@@ -1835,6 +1921,134 @@ def page_estado_nube():
     st.code("NEON_DATABASE_URL = postgresql://...?...sslmode=require", language="toml")
 
 
+
+# ============================================================
+# V25.5 OVERRIDES: impresión limpia y PDF ticket térmico
+# ============================================================
+def print_button_component(label="🖨️ Imprimir comprobante"):
+    components.html(f"""
+    <button onclick="printReceiptOnly()" style="width:100%;height:44px;border:0;border-radius:12px;background:#0f172a;color:white;font-weight:900;font-size:15px;cursor:pointer;">{label}</button>
+    <script>
+    function printReceiptOnly() {{
+      const parentDoc = window.parent.document;
+      const el = parentDoc.getElementById('ticket-print-area');
+      if (!el) {{ alert('No se encontró el comprobante para imprimir.'); return; }}
+      const w = window.open('', '_blank', 'width=420,height=720');
+      if (!w) {{ alert('El navegador bloqueó la ventana de impresión. Permite ventanas emergentes para esta app.'); return; }}
+      w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Comprobante</title>
+      <style>
+        @page {{ size: 80mm auto; margin: 3mm; }}
+        body {{ margin:0; background:white; font-family: Arial, Helvetica, sans-serif; color:#111827; }}
+        .ticket-pro {{ width:76mm !important; max-width:76mm !important; margin:0 auto !important; border:0 !important; box-shadow:none !important; border-radius:0 !important; overflow:visible !important; background:white !important; }}
+        .ticket-top {{ background:#111827 !important; color:white !important; text-align:center !important; padding:8mm 4mm !important; }}
+        .ticket-top * {{ color:white !important; }}
+        .ticket-icon {{ width:17mm !important; height:17mm !important; object-fit:contain !important; background:white !important; border-radius:5mm !important; padding:2mm !important; }}
+        .ticket-store {{ font-size:18pt !important; margin:3mm 0 1mm !important; letter-spacing:.04em !important; }}
+        .ticket-kind {{ font-size:9pt !important; }}
+        .ticket-body {{ padding:4mm !important; }}
+        .ticket-logo-wide {{ max-width:34mm !important; max-height:18mm !important; object-fit:contain !important; }}
+        .chip {{ display:inline-block; border-radius:999px; padding:2mm 3mm; font-weight:800; font-size:8pt; background:#111827; color:white !important; }}
+        .ticket-grid, .ticket-payment-grid {{ display:grid; grid-template-columns:1fr 1fr; gap:2mm; }}
+        .ticket-box-mini {{ border:1px solid #e5e7eb; border-radius:3mm; padding:3mm; background:#f8fafc; }}
+        .ticket-label {{ color:#64748b !important; font-size:7pt; text-transform:uppercase; font-weight:800; }}
+        .ticket-value {{ color:#111827 !important; font-size:9pt; font-weight:900; }}
+        .ticket-section-title {{ color:#64748b !important; font-size:8pt; text-transform:uppercase; font-weight:900; border-bottom:1px solid #e5e7eb; padding-bottom:1.5mm; margin-top:4mm; }}
+        .ticket-info-row {{ display:flex; justify-content:space-between; gap:4mm; font-size:8.5pt; padding:1mm 0; }}
+        table {{ width:100%; border-collapse:collapse; }}
+        th {{ background:#f8fafc; color:#475569; font-size:7pt; text-align:left; padding:2mm 1.2mm; }}
+        td {{ border-top:1px solid #e5e7eb; font-size:8pt; padding:2mm 1.2mm; vertical-align:top; }}
+        .ticket-total-pro {{ background:#111827 !important; color:white !important; border-radius:4mm; padding:4mm; margin-top:4mm; display:flex; justify-content:space-between; font-size:15pt; font-weight:900; }}
+        .ticket-total-pro * {{ color:white !important; }}
+        .ticket-footer {{ text-align:center; color:#64748b !important; font-size:8pt; margin-top:4mm; }}
+      </style></head><body>${{el.outerHTML}}</body></html>`);
+      w.document.close(); w.focus(); setTimeout(() => {{ w.print(); }}, 350);
+    }}
+    </script>
+    """, height=52)
+
+
+def generate_receipt_pdf(id_venta: int):
+    """Genera comprobante tipo ticket 80 mm, más compatible con impresoras térmicas."""
+    if colors is None:
+        return None
+    venta = query_df("""
+        SELECT v.*, COALESCE(c.nombre_cliente,'Cliente general') AS cliente,
+               COALESCE(c.telefono,'') AS cliente_telefono,
+               COALESCE(c.documento,'') AS cliente_documento,
+               COALESCE(c.direccion,'') AS cliente_direccion
+        FROM ventas v LEFT JOIN clientes c ON c.id_cliente=v.id_cliente
+        WHERE v.id_venta=:id
+    """, {"id": id_venta})
+    if venta.empty:
+        return None
+    v = venta.iloc[0]
+    det = query_df("SELECT * FROM detalle_ventas WHERE id_venta=:id", {"id": id_venta})
+    cfg = cached_settings()
+    buffer = io.BytesIO()
+    height_cm = max(18, 12 + len(det) * 1.3)
+    doc = SimpleDocTemplate(buffer, pagesize=(8.0*cm, height_cm*cm), rightMargin=.35*cm, leftMargin=.35*cm, topMargin=.35*cm, bottomMargin=.35*cm)
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle('TicketTitle', parent=styles['Title'], fontSize=16, leading=18, textColor=colors.white, alignment=1, fontName='Helvetica-Bold')
+    white_small = ParagraphStyle('WhiteSmall', parent=styles['Normal'], fontSize=7.2, leading=9, textColor=colors.white, alignment=1)
+    normal = ParagraphStyle('TicketNormal', parent=styles['Normal'], fontSize=7.5, leading=9, textColor=colors.HexColor('#111827'))
+    small = ParagraphStyle('TicketSmall', parent=styles['Normal'], fontSize=6.5, leading=8, textColor=colors.HexColor('#64748b'))
+    label = ParagraphStyle('TicketLabel', parent=styles['Normal'], fontSize=6.5, leading=8, textColor=colors.HexColor('#64748b'), fontName='Helvetica-Bold')
+    story = []
+    header = Table([
+        [Paragraph(str(cfg.get('store_name') or APP_NAME_DEFAULT).upper(), title)],
+        [Paragraph('Comprobante de venta', white_small)],
+        [Paragraph(str(cfg.get('direccion') or ''), white_small)],
+        [Paragraph('WhatsApp: ' + str(cfg.get('telefono') or '-'), white_small)],
+    ], colWidths=[7.2*cm])
+    header.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,-1),colors.HexColor('#111827')),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),
+        ('TOPPADDING',(0,0),(-1,-1),4),('BOTTOMPADDING',(0,0),(-1,-1),3),
+    ]))
+    story.append(header); story.append(Spacer(1, .22*cm))
+    meta = Table([
+        [Paragraph('<b>N°</b>', label), Paragraph(str(v['comprobante']), normal)],
+        [Paragraph('<b>Fecha</b>', label), Paragraph(fmt_dt(v['fecha']), normal)],
+        [Paragraph('<b>Cliente</b>', label), Paragraph(str(v['cliente']), normal)],
+        [Paragraph('<b>Vendedor</b>', label), Paragraph(str(v.get('vendedor_nombre') or '-'), normal)],
+        [Paragraph('<b>Pago</b>', label), Paragraph(str(v.get('metodo_pago') or '-'), normal)],
+    ], colWidths=[1.8*cm, 5.4*cm])
+    meta.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'),('BOTTOMPADDING',(0,0),(-1,-1),2)]))
+    story.append(meta); story.append(Spacer(1, .18*cm))
+    story.append(Paragraph('DETALLE', label))
+    data = [[Paragraph('Cant.', label), Paragraph('Producto', label), Paragraph('Importe', label)]]
+    for _, r in det.iterrows():
+        data.append([Paragraph(num(r['cantidad']), normal), Paragraph(str(r['producto_nombre'])[:55], normal), Paragraph(money(r['subtotal']), normal)])
+    tbl = Table(data, colWidths=[1.0*cm, 4.35*cm, 1.85*cm])
+    tbl.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,0),colors.HexColor('#f8fafc')),
+        ('GRID',(0,0),(-1,-1),0.25,colors.HexColor('#e5e7eb')),
+        ('ALIGN',(0,1),(0,-1),'CENTER'),('ALIGN',(2,1),(2,-1),'RIGHT'),
+        ('VALIGN',(0,0),(-1,-1),'TOP'),('PADDING',(0,0),(-1,-1),3),
+    ]))
+    story.append(tbl); story.append(Spacer(1, .22*cm))
+    total_tbl = Table([[Paragraph('<b>TOTAL</b>', title), Paragraph('<b>'+money(v['total_venta'])+'</b>', title)]], colWidths=[3.1*cm, 4.1*cm])
+    total_tbl.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),colors.HexColor('#111827')),('ALIGN',(1,0),(1,0),'RIGHT'),('PADDING',(0,0),(-1,-1),6)]))
+    story.append(total_tbl); story.append(Spacer(1,.15*cm))
+    story.append(Paragraph('Pagado: '+money(v.get('monto_pagado',0))+'    Saldo: '+money(v.get('saldo_pendiente',0)), normal))
+    story.append(Spacer(1,.18*cm))
+    story.append(Paragraph(str(cfg.get('mensaje_comprobante','Gracias por su compra.')), small))
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def inject_css_v25_5():
+    st.markdown("""
+    <style>
+      div[data-testid="stTabs"] button[aria-selected="true"], div[data-testid="stTabs"] button[aria-selected="true"] * { color:#C87966 !important; }
+      .stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"] { background:#E49A86 !important; border-color:#C87966 !important; color:#fff !important; }
+      .stButton > button[kind="primary"] *, .stDownloadButton > button[kind="primary"] * { color:#fff !important; }
+      .stAlert, .stAlert * { color:#111827 !important; opacity:1 !important; }
+      .js-plotly-plot, .plotly, .plot-container { background:#fff !important; color:#111827 !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
 # ============================================================
 # ARRANQUE
 # ============================================================
@@ -1846,6 +2060,7 @@ except Exception as e:
     st.stop()
 
 inject_css()
+inject_css_v25_5()
 
 # Catálogo público por URL
 try:
