@@ -12,7 +12,7 @@ import streamlit as st
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-APP_VERSION = "V24 PostgreSQL Ready"
+APP_VERSION = "V24.1 PostgreSQL Ready - fix secuencias"
 APP_NAME = "Clomar Store"
 
 # ============================================================
@@ -55,7 +55,21 @@ IS_LOCAL_SQLITE = database_url().startswith("sqlite")
 
 
 def sql_id():
-    return "BIGSERIAL PRIMARY KEY" if IS_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    """
+    Identificador compatible con PostgreSQL/SQLite.
+
+    IMPORTANTE:
+    No usamos BIGSERIAL en PostgreSQL porque, si una creación de tabla anterior falló,
+    puede quedar una secuencia huérfana como usuarios_id_usuario_seq. Luego PostgreSQL
+    intenta crear la misma secuencia otra vez y devuelve:
+    duplicate key value violates unique constraint pg_class_relname_nsp_index.
+
+    Con este DEFAULT basado en timestamp + random evitamos secuencias y mantenemos
+    inserciones automáticas sin depender de SERIAL/IDENTITY.
+    """
+    if IS_POSTGRES:
+        return "BIGINT PRIMARY KEY DEFAULT ((EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::BIGINT + FLOOR(random() * 1000000)::BIGINT)"
+    return "INTEGER PRIMARY KEY AUTOINCREMENT"
 
 
 def exec_sql(sql: str, params: dict | None = None):
