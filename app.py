@@ -26,7 +26,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V25 App Comercial Estable"
+APP_VERSION = "V25.1 Visual Ligera Estable"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -324,7 +324,7 @@ def settings() -> dict:
         return {}
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def cached_settings() -> dict:
     return settings()
 
@@ -382,8 +382,20 @@ def product_image_url(row_or_dict) -> str:
     base = str(get_setting("imagenes_base_url", "")).strip().rstrip("/")
     if not base:
         return ""
-    # V25: detección automática por código. Prioriza .jpg; si tu imagen es .png, llena imagen_url manualmente.
     return f"{base}/{codigo}.jpg"
+
+
+def product_image_candidates(row_or_dict) -> list[str]:
+    d = dict(row_or_dict)
+    explicit = str(d.get("imagen_url") or "").strip()
+    if explicit.startswith("http://") or explicit.startswith("https://"):
+        return [explicit]
+    codigo = normalize_code(d.get("codigo"))
+    base = str(get_setting("imagenes_base_url", "")).strip().rstrip("/")
+    if not codigo or not base:
+        return []
+    # Soporta nombres habituales: 0001.jpg, 0001.png, 0001.jpeg, 0001.JPG
+    return [f"{base}/{codigo}.jpg", f"{base}/{codigo}.png", f"{base}/{codigo}.jpeg", f"{base}/{codigo}.JPG"]
 
 
 def stock_expr_sql():
@@ -396,7 +408,7 @@ def stock_expr_sql():
     """
 
 
-@st.cache_data(ttl=20, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def productos_con_stock_cached():
     return query_df(f"""
         SELECT p.*, COALESCE(c.nombre_categoria,'Sin categoría') AS categoria,
@@ -420,7 +432,7 @@ def clear_product_cache():
     productos_con_stock_cached.clear()
 
 
-@st.cache_data(ttl=20, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def ventas_periodo_cached(desde: str, hasta: str):
     return query_df("""
         SELECT v.*, COALESCE(c.nombre_cliente,'Cliente general') AS cliente
@@ -435,7 +447,7 @@ def ventas_periodo(desde, hasta):
     return ventas_periodo_cached(str(desde), str(hasta)).copy()
 
 
-@st.cache_data(ttl=20, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def detalle_productos_vendidos_cached(desde: str, hasta: str):
     return query_df("""
         SELECT v.vendedor_nombre AS vendedor, dv.producto_nombre AS producto,
@@ -467,17 +479,19 @@ def inject_css():
     st.markdown(f"""
     <style>
     :root {{ --primary:{color}; --dark:#0f172a; --muted:#64748b; --line:#e5e7eb; --bg:#f6f8fc; --danger:#ef4444; --ok:#16a34a; }}
-    .stApp {{ background: #f6f8fc; color:#111827; }}
+    .stApp {{ background:#f6f8fc; color:#111827; }}
     header[data-testid="stHeader"] {{ background:#0b0f19; }}
-    .block-container {{ padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1500px; }}
+    .block-container {{ padding-top:1.05rem; padding-bottom:2.4rem; max-width:1500px; }}
     section[data-testid="stSidebar"] {{ background:#ffffff; border-right:1px solid #e5e7eb; }}
-    section[data-testid="stSidebar"] * {{ color:#111827 !important; }}
+    section[data-testid="stSidebar"] * {{ color:#111827 !important; opacity:1 !important; }}
+    section[data-testid="stSidebar"] button {{ background:#ffffff !important; color:#111827 !important; border:1px solid #e5e7eb !important; }}
     .sidebar-logo {{ display:flex; align-items:center; gap:10px; margin:8px 0 18px; }}
-    .sidebar-logo img {{ width:34px; height:34px; object-fit:contain; border-radius:10px; }}
-    .sidebar-title {{ font-size:20px; font-weight:900; }}
-    .clomar-hero {{ background:linear-gradient(135deg,#111827,#1e293b); color:white; border-radius:0 0 22px 22px; padding:34px 36px; margin-bottom:28px; box-shadow:0 16px 36px rgba(15,23,42,.16); }}
-    .clomar-hero h1 {{ margin:0; font-size:42px; line-height:1.05; color:white; font-weight:950; }}
-    .clomar-hero p {{ margin:16px 0 0; color:#e5e7eb; font-size:17px; }}
+    .sidebar-logo img {{ width:38px; height:38px; object-fit:contain; border-radius:10px; }}
+    .sidebar-title {{ font-size:20px; font-weight:900; color:#111827 !important; }}
+    .clomar-hero {{ background:linear-gradient(135deg,#111827,#1e293b); border-radius:0 0 22px 22px; padding:28px 34px; margin-bottom:24px; box-shadow:0 16px 34px rgba(15,23,42,.14); }}
+    .clomar-hero, .clomar-hero * {{ color:#ffffff !important; opacity:1 !important; }}
+    .clomar-hero h1 {{ margin:0; font-size:38px; line-height:1.08; font-weight:950; letter-spacing:-.02em; }}
+    .clomar-hero p {{ margin:13px 0 0; color:#e5e7eb !important; font-size:16px; }}
     .card, .product-card, .kpi-card, .receipt-box {{ background:#fff; border:1px solid #e5e7eb; border-radius:20px; padding:20px; box-shadow:0 8px 25px rgba(15,23,42,.06); }}
     .kpi-label {{ color:#6b7280; font-size:13px; font-weight:900; letter-spacing:.06em; text-transform:uppercase; }}
     .kpi-value {{ color:#0f172a; font-size:34px; font-weight:950; margin-top:12px; }}
@@ -500,10 +514,12 @@ def inject_css():
     div[data-testid="stTextInput"] input, div[data-testid="stNumberInput"] input, div[data-testid="stTextArea"] textarea, div[data-testid="stSelectbox"] div[data-baseweb="select"] > div, div[data-testid="stDateInput"] input {{
         background:#ffffff !important; color:#111827 !important; border:1px solid #cbd5e1 !important; border-radius:12px !important;
     }}
-    label, .stMarkdown p, .stMarkdown span {{ color:#111827; }}
-    .stButton > button, .stDownloadButton > button {{ border-radius:12px !important; min-height:45px; font-weight:900 !important; }}
+    div[data-testid="stWidgetLabel"], div[data-testid="stWidgetLabel"] *, label {{ color:#111827 !important; opacity:1 !important; font-weight:800 !important; }}
+    .stMarkdown:not(.clomar-hero) p, .stMarkdown:not(.clomar-hero) span {{ color:inherit; }}
+    .stButton > button, .stDownloadButton > button {{ border-radius:12px !important; min-height:44px; font-weight:900 !important; color:#111827 !important; background:#ffffff !important; border:1px solid #cbd5e1 !important; }}
     .stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"] {{ background:#0f172a !important; color:#fff !important; border:1px solid #0f172a !important; }}
-    .stButton > button:hover, .stDownloadButton > button:hover {{ filter:brightness(.96); border-color:#0f172a !important; }}
+    .stButton > button[kind="primary"] *, .stDownloadButton > button[kind="primary"] * {{ color:#fff !important; }}
+    .stButton > button:hover, .stDownloadButton > button:hover {{ filter:brightness(.98); border-color:#0f172a !important; }}
     div[data-testid="stAlert"] {{ border-radius:14px; color:#111827 !important; }}
     .dataframe, table {{ color:#111827 !important; }}
     .clomar-table {{ width:100%; border-collapse:collapse; background:#fff; border-radius:18px; overflow:hidden; box-shadow:0 8px 25px rgba(15,23,42,.06); }}
@@ -541,29 +557,32 @@ def hero(title, subtitle, icon=""):
 def login_screen():
     cfg = cached_settings()
     logo = cfg.get("logo_url", "")
-    st.markdown("<br>", unsafe_allow_html=True)
-    c1, c2, c3 = st.columns([1, 1.1, 1])
-    with c2:
-        st.markdown("<div class='card' style='padding:32px'>", unsafe_allow_html=True)
-        if logo:
-            st.image(logo, width=220)
-        st.markdown(f"### Iniciar sesión")
-        usuario = st.text_input("Usuario", placeholder="admin o vendedor")
-        clave = st.text_input("Contraseña", type="password", placeholder="Tu contraseña")
-        if st.button("Entrar", type="primary", use_container_width=True):
-            df = query_df("SELECT * FROM usuarios WHERE usuario=:u AND estado='Activo'", {"u": usuario.strip()})
-            if df.empty or not verify_password(clave, df.iloc[0]["password_hash"]):
-                st.error("Usuario o contraseña incorrectos.")
-            else:
-                row = df.iloc[0].to_dict()
-                st.session_state.user = {
-                    "id_usuario": int(row["id_usuario"]), "usuario": row["usuario"],
-                    "nombre": row["nombre"], "rol": row["rol"]
-                }
-                st.rerun()
-        st.caption("Acceso seguro. Usa las credenciales definidas por el administrador.")
-        st.markdown("</div>", unsafe_allow_html=True)
-
+    icon = cfg.get("icon_url", "") or logo
+    store = cfg.get("store_name") or APP_NAME_DEFAULT
+    st.markdown("""
+    <div style='max-width:520px;margin:28px auto 8px auto;'>
+      <div class='card' style='padding:28px 30px;'>
+    """, unsafe_allow_html=True)
+    if logo:
+        st.markdown(f"<div style='text-align:center;margin-bottom:12px'><img src='{esc(logo)}' style='max-width:240px;max-height:95px;object-fit:contain'></div>", unsafe_allow_html=True)
+    elif icon:
+        st.markdown(f"<div style='text-align:center;margin-bottom:12px'><img src='{esc(icon)}' style='width:82px;height:82px;object-fit:contain'></div>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='margin:0 0 18px;color:#111827;font-weight:950;text-align:center'>Iniciar sesión</h2>", unsafe_allow_html=True)
+    usuario = st.text_input("Usuario", placeholder="admin o vendedor")
+    clave = st.text_input("Contraseña", type="password", placeholder="Tu contraseña")
+    if st.button("Entrar", type="primary", use_container_width=True):
+        df = query_df("SELECT * FROM usuarios WHERE usuario=:u AND estado='Activo'", {"u": usuario.strip()})
+        if df.empty or not verify_password(clave, df.iloc[0]["password_hash"]):
+            st.error("Usuario o contraseña incorrectos.")
+        else:
+            row = df.iloc[0].to_dict()
+            st.session_state.user = {
+                "id_usuario": int(row["id_usuario"]), "usuario": row["usuario"],
+                "nombre": row["nombre"], "rol": row["rol"]
+            }
+            st.rerun()
+    st.markdown("<div class='small-note' style='text-align:center;margin-top:14px'>Acceso seguro. Usa las credenciales definidas por el administrador.</div>", unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
 def sidebar_nav():
     u = current_user()
@@ -593,7 +612,8 @@ def sidebar_nav():
 # COMPONENTES PRODUCTO / RECIBO / PDF
 # ============================================================
 def product_card_html(r, show_cost=False, show_stock=True, whatsapp=False):
-    img = product_image_url(r)
+    img_candidates = product_image_candidates(r)
+    img = img_candidates[0] if img_candidates else ""
     stock = float(r.get("stock_actual") or 0)
     stock_min = float(r.get("stock_minimo") or 0)
     chip_stock = ""
