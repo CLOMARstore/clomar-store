@@ -13,7 +13,7 @@ import streamlit as st
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-APP_VERSION = "V24.7 Profesional + Excel + Logo"
+APP_VERSION = "V24.8 Visual + Rendimiento Estable"
 APP_NAME = "Clomar Store"
 
 # ============================================================
@@ -365,8 +365,22 @@ def ensure_default_data():
             )
 
 
-try:
+@st.cache_resource(show_spinner=False)
+def bootstrap_database_once(db_url: str):
+    """Inicializa la base una sola vez por arranque para reducir recargas lentas."""
     init_db()
+    return True
+
+
+def clear_app_cache():
+    try:
+        get_store_config.clear()
+    except Exception:
+        pass
+
+
+try:
+    bootstrap_database_once(database_url())
     DB_OK = True
     DB_ERROR = ""
 except Exception as e:
@@ -381,31 +395,50 @@ st.markdown(
     """
 <style>
 :root{
-  --bg:#f5f7fb; --panel:#ffffff; --ink:#0f172a; --muted:#667085;
-  --brand:#111827; --accent:#f5c542; --green:#16a34a; --red:#dc2626; --line:#e5e7eb;
+  --bg:#f6f7fb; --panel:#ffffff; --ink:#111827; --muted:#667085;
+  --brand:#111827; --brand2:#1f2937; --accent:#ef4444; --green:#16a34a; --red:#dc2626; --line:#e5e7eb;
 }
-.stApp { background: var(--bg); color: var(--ink); }
-.block-container { padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1500px; }
-[data-testid="stSidebar"] { background: #ffffff; border-right: 1px solid var(--line); }
-[data-testid="stSidebar"] * { color: #111827; }
-h1,h2,h3 { letter-spacing:-.02em; color:#0f172a; }
-.clomar-hero {background:linear-gradient(135deg,#111827,#1f2937);color:white;border-radius:24px;padding:24px 28px;box-shadow:0 18px 45px rgba(15,23,42,.18);}
-.clomar-hero h1{color:white;margin:0;font-size:34px}.clomar-hero p{color:#d1d5db;margin:.4rem 0 0}
-.kpi-card {background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:18px;box-shadow:0 14px 32px rgba(15,23,42,.07);min-height:116px;}
-.kpi-label{font-size:13px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}.kpi-value{font-size:30px;font-weight:900;color:#0f172a;margin-top:6px}.kpi-sub{font-size:13px;color:var(--muted);margin-top:4px}
-.card {background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:18px;box-shadow:0 10px 28px rgba(15,23,42,.06);}
-.product-card {background:#fff;border:1px solid #e6e8ef;border-radius:22px;padding:16px;box-shadow:0 10px 22px rgba(15,23,42,.06);height:100%;}
-.product-name{font-size:17px;font-weight:900;color:#101828;min-height:48px}.product-price{font-size:26px;font-weight:900;color:#111827;margin-top:8px}.product-meta{font-size:13px;color:#667085}.chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;border:1px solid #e5e7eb;background:#f9fafb;color:#344054;margin:3px 4px 3px 0}.chip-ok{background:#ecfdf3;color:#027a48;border-color:#abefc6}.chip-warn{background:#fffaeb;color:#b54708;border-color:#fedf89}.chip-red{background:#fef3f2;color:#b42318;border-color:#fecdca}.chip-dark{background:#111827;color:#fff;border-color:#111827}
-.clean-table {width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid #e5e7eb;border-radius:18px;overflow:hidden;box-shadow:0 10px 28px rgba(15,23,42,.05)}.clean-table th{background:#f8fafc;color:#475467;text-align:left;padding:12px 14px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #e5e7eb}.clean-table td{padding:12px 14px;border-bottom:1px solid #f0f2f5;color:#111827;font-size:14px}.clean-table tr:hover td{background:#f9fafb}.clean-table tr:last-child td{border-bottom:none}
-.success-panel {background:#ffffff;border:1px solid #d0d5dd;border-radius:28px;padding:26px;text-align:center;box-shadow:0 25px 50px rgba(15,23,42,.16);}.success-icon{font-size:52px;color:#16a34a}.success-title{font-size:28px;font-weight:900;color:#111827}.success-sub{color:#667085;font-size:16px;margin-top:6px}.receipt {background:white;border:1px solid #d0d5dd;border-radius:20px;padding:22px;max-width:440px;margin:auto;color:#111827}.receipt h2{text-align:center;margin:0}.receipt-line{display:flex;justify-content:space-between;border-bottom:1px dashed #d0d5dd;padding:8px 0;font-size:14px}.receipt-total{font-size:24px;font-weight:900;text-align:right;margin-top:12px}
-.no-print {}
-@media print { body * { visibility:hidden !important; } #printable-receipt, #printable-receipt * { visibility:visible !important; } #printable-receipt { position:absolute; left:0; top:0; width:100%; } .no-print { display:none !important; } }
-button[kind="primary"] {background:#111827!important;border-radius:14px!important;border:1px solid #111827!important;}
+.stApp{background:var(--bg)!important;color:var(--ink)!important;}
+.block-container{padding-top:.75rem!important;padding-bottom:2rem!important;max-width:1420px!important;}
+[data-testid="stHeader"]{background:#0b0f17!important;}
+[data-testid="stSidebar"]{background:#fff!important;border-right:1px solid var(--line)!important;}
+[data-testid="stSidebar"] *{color:#1f2937!important;}
+[data-testid="stSidebar"] button{background:#111827!important;color:#fff!important;border-radius:14px!important;border:1px solid #111827!important;font-weight:900!important;}
+
+h1,h2,h3,h4{color:#0f172a!important;letter-spacing:-.025em;}
+.clomar-hero{background:linear-gradient(135deg,#111827,#1f2937);color:#fff;border-radius:22px;padding:22px 26px;box-shadow:0 16px 38px rgba(15,23,42,.15);margin-bottom:14px;}
+.clomar-hero h1{color:#fff!important;margin:0;font-size:32px;font-weight:950}.clomar-hero p{color:#e5e7eb!important;margin:.45rem 0 0;font-size:15px}
+
+.kpi-card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:17px;box-shadow:0 10px 25px rgba(15,23,42,.055);min-height:108px;}
+.kpi-label{font-size:12px;color:#667085;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.kpi-value{font-size:29px;font-weight:950;color:#0f172a;margin-top:5px}.kpi-sub{font-size:13px;color:#667085;margin-top:4px}
+.card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:0 10px 26px rgba(15,23,42,.055);}
+.product-card{background:#fff;border:1px solid #e7eaf0;border-radius:20px;padding:16px;box-shadow:0 8px 20px rgba(15,23,42,.055);height:100%;}
+.product-name{font-size:17px;font-weight:900;color:#101828;min-height:44px}.product-price{font-size:26px;font-weight:950;color:#111827;margin-top:8px}.product-meta{font-size:13px;color:#667085}.chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;border:1px solid #e5e7eb;background:#f9fafb;color:#344054;margin:3px 4px 3px 0}.chip-ok{background:#ecfdf3;color:#027a48;border-color:#abefc6}.chip-warn{background:#fffaeb;color:#b54708;border-color:#fedf89}.chip-red{background:#fef3f2;color:#b42318;border-color:#fecdca}.chip-dark{background:#111827;color:#fff;border-color:#111827}
+
+.clean-table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid #e5e7eb;border-radius:18px;overflow:hidden;box-shadow:0 8px 22px rgba(15,23,42,.045)}.clean-table th{background:#f8fafc;color:#475467;text-align:left;padding:12px 14px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #e5e7eb}.clean-table td{padding:12px 14px;border-bottom:1px solid #f0f2f5;color:#111827;font-size:14px}.clean-table tr:hover td{background:#f9fafb}.clean-table tr:last-child td{border-bottom:none}
+
+/* Campos claros y legibles */
+label,[data-testid="stWidgetLabel"],[data-testid="stWidgetLabel"] p{color:#111827!important;font-weight:850!important;opacity:1!important;}
+[data-testid="stTextInput"] input,[data-testid="stNumberInput"] input,[data-testid="stTextArea"] textarea,[data-testid="stDateInput"] input{background:#fff!important;color:#111827!important;border:1px solid #cbd5e1!important;border-radius:12px!important;box-shadow:none!important;}
+[data-testid="stTextInput"] input::placeholder,[data-testid="stTextArea"] textarea::placeholder{color:#98a2b3!important;opacity:1!important;}
+[data-baseweb="select"] > div{background:#fff!important;color:#111827!important;border-color:#cbd5e1!important;}
+[data-baseweb="select"] span{color:#111827!important;}
+[data-testid="stForm"]{background:#fff!important;border:1px solid #e5e7eb!important;border-radius:20px!important;padding:18px!important;box-shadow:0 10px 24px rgba(15,23,42,.045)!important;}
+
+.stButton > button,.stDownloadButton > button,button[kind="primary"]{border-radius:13px!important;font-weight:900!important;min-height:42px!important;}
+button[kind="primary"],.stButton > button[kind="primary"]{background:#111827!important;color:#fff!important;border:1px solid #111827!important;}
+.stButton > button:not([kind="primary"]){background:#fff!important;color:#111827!important;border:1px solid #d0d5dd!important;}
+.stButton > button:disabled{background:#f2f4f7!important;color:#98a2b3!important;border:1px solid #e5e7eb!important;}
+[data-testid="stAlert"]{border-radius:14px!important;}[data-testid="stAlert"] *{color:#111827!important;font-weight:700!important;}
+button[data-baseweb="tab"]{color:#344054!important;font-weight:850!important;}button[data-baseweb="tab"][aria-selected="true"]{color:#ef4444!important;border-bottom-color:#ef4444!important;}
+.js-plotly-plot,.plot-container{background:#fff!important;border-radius:18px!important;}
+.success-panel{background:#fff;border:1px solid #d0d5dd;border-radius:26px;padding:26px;text-align:center;box-shadow:0 20px 42px rgba(15,23,42,.13);}.success-icon{font-size:50px;color:#16a34a}.success-title{font-size:28px;font-weight:950;color:#111827}.success-sub{color:#667085;font-size:15px;margin-top:6px}.receipt{background:white;border:1px solid #d0d5dd;border-radius:20px;padding:22px;max-width:440px;margin:auto;color:#111827}.receipt h2{text-align:center;margin:0}.receipt-line{display:flex;justify-content:space-between;border-bottom:1px dashed #d0d5dd;padding:8px 0;font-size:14px}.receipt-total{font-size:24px;font-weight:950;text-align:right;margin-top:12px}.no-print{}
+@media print{body *{visibility:hidden!important;}#printable-receipt,#printable-receipt *{visibility:visible!important;}#printable-receipt{position:absolute;left:0;top:0;width:100%;}.no-print{display:none!important;}}
+@media(max-width:900px){.block-container{padding-left:1rem!important;padding-right:1rem!important}.clomar-hero h1{font-size:26px}.kpi-value{font-size:24px}}
 </style>
 """,
     unsafe_allow_html=True,
 )
-
 
 def kpi(label, value, sub=""):
     st.markdown(f"""
@@ -428,6 +461,7 @@ def html_table(df: pd.DataFrame, columns=None, headers=None, max_rows=100):
     st.markdown(f"<table class='clean-table'><thead><tr>{th}</tr></thead><tbody>{''.join(rows)}</tbody></table>", unsafe_allow_html=True)
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def get_store_config() -> dict:
     """Devuelve configuración visual/comercial de la tienda."""
     defaults = {
@@ -704,7 +738,8 @@ def page_panel_dueno():
 
     st.subheader("Productos vendidos")
     if not detalle.empty:
-        fig = px.bar(detalle.head(10), x="producto", y="total_vendido", color="vendedor", title="Top productos por venta")
+        fig = px.bar(detalle.head(10), x="producto", y="total_vendido", color="vendedor", title="Top productos por venta", template="plotly_white")
+        fig.update_layout(paper_bgcolor="white", plot_bgcolor="white", font_color="#111827")
         st.plotly_chart(fig, use_container_width=True)
         dtab = detalle.copy()
         dtab["total"] = dtab["total_vendido"].apply(money)
@@ -1176,7 +1211,7 @@ def page_inventario():
 
 
 def page_ingreso_mercaderia():
-    st.markdown("<div class='clomar-hero'><h1>📥 Ingreso de mercadería</h1><p>Registra compras, aumenta stock y controla deudas a proveedores.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='clomar-hero'><h1>📥 Ingreso de mercadería</h1><p>Formulario claro para aumentar stock y registrar pago al proveedor.</p></div>", unsafe_allow_html=True)
     if not is_admin():
         st.warning("Solo administrador puede ingresar mercadería.")
         return
@@ -1184,18 +1219,24 @@ def page_ingreso_mercaderia():
     if productos.empty:
         st.info("Crea productos antes de registrar mercadería.")
         return
-    with st.form("form_compra"):
-        proveedor = st.text_input("Proveedor", placeholder="Nombre del proveedor")
-        producto_label = st.selectbox("Producto", [f"{r['id_producto']} - {r['nombre_producto']} | Stock {num(r['stock_actual'])}" for _, r in productos.iterrows()])
-        idp = int(producto_label.split(" - ")[0])
-        cantidad = st.number_input("Cantidad", min_value=0.0, step=1.0)
-        costo = st.number_input("Costo unitario", min_value=0.0, step=1.0)
-        total = cantidad * costo
-        metodo = st.selectbox("Método de pago", ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Crédito"])
-        pagado = st.number_input("Monto pagado", min_value=0.0, value=float(total if metodo != "Crédito" else 0), step=1.0)
-        obs = st.text_area("Observación")
-        st.markdown(f"### Total compra: {money(total)} · Saldo: {money(max(total-pagado,0))}")
-        if st.form_submit_button("Registrar ingreso", type="primary", use_container_width=True):
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    with st.form("form_compra_v248"):
+        st.markdown("### Nueva entrada de stock")
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            proveedor = st.text_input("Proveedor", placeholder="Nombre del proveedor")
+            producto_label = st.selectbox("Producto", [f"{r['id_producto']} - {r['nombre_producto']} | Stock {num(r['stock_actual'])}" for _, r in productos.iterrows()])
+            idp = int(producto_label.split(" - ")[0])
+            cantidad = st.number_input("Cantidad a ingresar", min_value=0.0, step=1.0)
+        with c2:
+            costo = st.number_input("Costo unitario", min_value=0.0, step=1.0)
+            total = cantidad * costo
+            metodo = st.selectbox("Método de pago", ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Crédito"])
+            pagado = st.number_input("Monto pagado", min_value=0.0, value=float(total if metodo != "Crédito" else 0), step=1.0)
+        obs = st.text_area("Observación", placeholder="Factura, guía, nota del proveedor...")
+        saldo = max(total - pagado, 0)
+        st.markdown(f"<div class='kpi-card'><div class='kpi-label'>Resumen de compra</div><div class='kpi-value'>{money(total)}</div><div class='kpi-sub'>Pagado {money(pagado)} · Saldo {money(saldo)}</div></div>", unsafe_allow_html=True)
+        if st.form_submit_button("Registrar ingreso de mercadería", type="primary", use_container_width=True):
             if cantidad <= 0:
                 st.error("La cantidad debe ser mayor a cero.")
             else:
@@ -1215,6 +1256,7 @@ def page_ingreso_mercaderia():
                         conn.execute(text("INSERT INTO caja (tipo, concepto, metodo_pago, monto, referencia, id_usuario, observacion) VALUES ('Egreso', :concepto, :metodo, :monto, :ref, :uid, :obs)"), {"concepto": f"Compra mercadería {idc}", "metodo": metodo, "monto": pagado, "ref": f"COMPRA {idc}", "uid": u["id_usuario"], "obs": obs})
                 st.success("Ingreso de mercadería registrado.")
                 st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def page_clientes():
@@ -1304,15 +1346,20 @@ def page_reportes():
         return
     ventas["dia"] = pd.to_datetime(ventas["fecha"]).dt.date
     diario = ventas.groupby("dia", as_index=False)["total_venta"].sum()
-    fig = px.line(diario, x="dia", y="total_venta", markers=True, title="Ventas por día")
+    fig = px.line(diario, x="dia", y="total_venta", markers=True, title="Ventas por día", template="plotly_white")
+    fig.update_layout(paper_bgcolor="white", plot_bgcolor="white", font_color="#111827")
     st.plotly_chart(fig, use_container_width=True)
     a,b=st.columns(2)
     with a:
         metodo = ventas.groupby("metodo_pago", as_index=False)["total_venta"].sum()
-        st.plotly_chart(px.pie(metodo, names="metodo_pago", values="total_venta", title="Métodos de pago"), use_container_width=True)
+        fig_m = px.pie(metodo, names="metodo_pago", values="total_venta", title="Métodos de pago", template="plotly_white")
+        fig_m.update_layout(paper_bgcolor="white", font_color="#111827")
+        st.plotly_chart(fig_m, use_container_width=True)
     with b:
         vendedor = ventas.groupby("vendedor_nombre", as_index=False)["total_venta"].sum()
-        st.plotly_chart(px.bar(vendedor, x="vendedor_nombre", y="total_venta", title="Ventas por vendedor"), use_container_width=True)
+        fig_v = px.bar(vendedor, x="vendedor_nombre", y="total_venta", title="Ventas por vendedor", template="plotly_white")
+        fig_v.update_layout(paper_bgcolor="white", plot_bgcolor="white", font_color="#111827")
+        st.plotly_chart(fig_v, use_container_width=True)
     if not detalle.empty:
         detalle["total"] = detalle["total_vendido"].apply(money)
         detalle["utilidad_fmt"] = detalle["utilidad"].apply(money)
@@ -1320,19 +1367,43 @@ def page_reportes():
 
 
 def page_usuarios():
-    st.markdown("<div class='clomar-hero'><h1>🔐 Usuarios</h1><p>Control de accesos: dueño, administrador y vendedor.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='clomar-hero'><h1>🔐 Usuarios</h1><p>Controla accesos, roles, estado y contraseñas.</p></div>", unsafe_allow_html=True)
     if not is_admin():
         st.warning("Solo administrador puede gestionar usuarios.")
         return
     users=query_df("SELECT id_usuario, usuario, nombre, rol, estado, creado_en FROM usuarios ORDER BY id_usuario")
-    html_table(users, ["usuario","nombre","rol","estado","creado_en"], ["Usuario","Nombre","Rol","Estado","Creado"], 100)
-    with st.expander("Crear usuario"):
-        with st.form("form_user"):
+    tab1, tab2, tab3 = st.tabs(["Lista", "Editar / contraseña", "Crear usuario"])
+    with tab1:
+        html_table(users, ["usuario","nombre","rol","estado","creado_en"], ["Usuario","Nombre","Rol","Estado","Creado"], 100)
+    with tab2:
+        if users.empty:
+            st.info("No hay usuarios para editar.")
+        else:
+            opciones = {f"{r['usuario']} · {r['nombre']} · {r['rol']}": r for _, r in users.iterrows()}
+            elegido = st.selectbox("Selecciona usuario", list(opciones.keys()))
+            r = opciones[elegido]
+            with st.form("form_edit_user_v248"):
+                nombre = st.text_input("Nombre visible", value=str(r['nombre']))
+                roles = ["Vendedor", "Administrador", "Supervisor"]
+                rol = st.selectbox("Rol", roles, index=roles.index(str(r['rol'])) if str(r['rol']) in roles else 0)
+                estado = st.selectbox("Estado", ["Activo", "Inactivo"], index=0 if str(r['estado']) == "Activo" else 1)
+                nueva_clave = st.text_input("Nueva contraseña", type="password", placeholder="Déjalo vacío para no cambiar")
+                if st.form_submit_button("Actualizar usuario", type="primary", use_container_width=True):
+                    params = {"id": int(r['id_usuario']), "nombre": nombre or str(r['usuario']), "rol": rol, "estado": estado}
+                    if nueva_clave.strip():
+                        params["password_hash"] = hash_password(nueva_clave)
+                        exec_sql("UPDATE usuarios SET nombre=:nombre, rol=:rol, estado=:estado, password_hash=:password_hash WHERE id_usuario=:id", params)
+                    else:
+                        exec_sql("UPDATE usuarios SET nombre=:nombre, rol=:rol, estado=:estado WHERE id_usuario=:id", params)
+                    st.success("Usuario actualizado.")
+                    st.rerun()
+    with tab3:
+        with st.form("form_user_v248"):
             usuario=st.text_input("Usuario")
             nombre=st.text_input("Nombre")
             clave=st.text_input("Contraseña", type="password")
-            rol=st.selectbox("Rol", ["Vendedor", "Administrador", "Supervisor"])
-            if st.form_submit_button("Crear usuario", type="primary"):
+            rol=st.selectbox("Rol", ["Vendedor", "Administrador", "Supervisor"], key="rol_new_user")
+            if st.form_submit_button("Crear usuario", type="primary", use_container_width=True):
                 if not usuario or not clave:
                     st.error("Usuario y contraseña son obligatorios.")
                 else:
@@ -1340,7 +1411,7 @@ def page_usuarios():
                         exec_sql("INSERT INTO usuarios (usuario,password_hash,nombre,rol,estado) VALUES (:u,:p,:n,:r,'Activo')", {"u":usuario,"p":hash_password(clave),"n":nombre or usuario,"r":rol})
                         st.success("Usuario creado.")
                         st.rerun()
-                    except Exception as e:
+                    except Exception:
                         st.error("No se pudo crear. Quizás el usuario ya existe.")
 
 
@@ -1398,6 +1469,7 @@ def page_configuracion_tienda():
                     "mensaje_comprobante": mensaje,
                     "color_principal": color,
                 })
+                clear_app_cache()
                 st.success("Configuración guardada.")
                 st.rerun()
     with c2:
