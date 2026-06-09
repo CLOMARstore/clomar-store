@@ -3,6 +3,8 @@ import io
 import zipfile
 import hashlib
 import html
+import urllib.parse
+import urllib.request
 import secrets
 from datetime import datetime, date, timedelta
 from pathlib import Path
@@ -13,7 +15,7 @@ import streamlit as st
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-APP_VERSION = "V24.8 Visual + Rendimiento Estable"
+APP_VERSION = "V24.9 Catálogo Clientes + PDF"
 APP_NAME = "Clomar Store"
 
 # ============================================================
@@ -413,6 +415,12 @@ h1,h2,h3,h4{color:#0f172a!important;letter-spacing:-.025em;}
 .kpi-label{font-size:12px;color:#667085;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.kpi-value{font-size:29px;font-weight:950;color:#0f172a;margin-top:5px}.kpi-sub{font-size:13px;color:#667085;margin-top:4px}
 .card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:0 10px 26px rgba(15,23,42,.055);}
 .product-card{background:#fff;border:1px solid #e7eaf0;border-radius:20px;padding:16px;box-shadow:0 8px 20px rgba(15,23,42,.055);height:100%;}
+.catalog-card{background:#fff;border:1px solid #e7eaf0;border-radius:22px;padding:16px;box-shadow:0 10px 24px rgba(15,23,42,.06);min-height:320px;}
+.catalog-img{width:100%;height:170px;object-fit:cover;border-radius:16px;border:1px solid #e5e7eb;background:#f8fafc;margin-bottom:12px;}
+.catalog-empty-img{height:170px;border-radius:16px;background:linear-gradient(135deg,#fff7ed,#fdf2f8);display:flex;align-items:center;justify-content:center;font-size:54px;border:1px solid #f2e8e8;margin-bottom:12px;}
+.public-hero{background:linear-gradient(135deg,#fff,#fff7fb);border:1px solid #f1e4e8;border-radius:26px;padding:24px;box-shadow:0 16px 35px rgba(15,23,42,.06);margin-bottom:16px;}
+.public-hero h1{margin:0;color:#111827!important;font-size:34px;}
+.public-hero p{color:#667085;margin:.35rem 0 0;}
 .product-name{font-size:17px;font-weight:900;color:#101828;min-height:44px}.product-price{font-size:26px;font-weight:950;color:#111827;margin-top:8px}.product-meta{font-size:13px;color:#667085}.chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;border:1px solid #e5e7eb;background:#f9fafb;color:#344054;margin:3px 4px 3px 0}.chip-ok{background:#ecfdf3;color:#027a48;border-color:#abefc6}.chip-warn{background:#fffaeb;color:#b54708;border-color:#fedf89}.chip-red{background:#fef3f2;color:#b42318;border-color:#fecdca}.chip-dark{background:#111827;color:#fff;border-color:#111827}
 
 .clean-table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid #e5e7eb;border-radius:18px;overflow:hidden;box-shadow:0 8px 22px rgba(15,23,42,.045)}.clean-table th{background:#f8fafc;color:#475467;text-align:left;padding:12px 14px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #e5e7eb}.clean-table td{padding:12px 14px;border-bottom:1px solid #f0f2f5;color:#111827;font-size:14px}.clean-table tr:hover td{background:#f9fafb}.clean-table tr:last-child td{border-bottom:none}
@@ -471,6 +479,7 @@ def get_store_config() -> dict:
         "direccion": "",
         "mensaje_comprobante": "Gracias por su compra.",
         "color_principal": "#111827",
+        "catalogo_url_base": get_secret("PUBLIC_APP_URL", "https://clomar-store.streamlit.app"),
     }
     try:
         df = query_df("SELECT clave, valor FROM configuracion_tienda")
@@ -989,6 +998,208 @@ def product_card_markup(r, show_cost=False, show_image=True):
     """
 
 
+
+
+def normalize_phone(raw: str) -> str:
+    """Convierte teléfono local a formato wa.me simple. Si no tiene país y tiene 9 dígitos, asume Perú 51."""
+    digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
+    if not digits:
+        return ""
+    if len(digits) == 9:
+        return "51" + digits
+    return digits
+
+
+def whatsapp_product_url(product_name: str, price, cfg: dict) -> str:
+    phone = normalize_phone(cfg.get("telefono", ""))
+    msg = f"Hola, estoy interesado(a) en el producto {product_name} de {cfg.get('nombre_tienda', APP_NAME)}. Precio: {money(price)}. ¿Está disponible?"
+    encoded = urllib.parse.quote(msg)
+    if phone:
+        return f"https://wa.me/{phone}?text={encoded}"
+    return f"https://wa.me/?text={encoded}"
+
+
+def public_catalog_url() -> str:
+    cfg = get_store_config()
+    base = str(cfg.get("catalogo_url_base") or get_secret("PUBLIC_APP_URL", "https://clomar-store.streamlit.app")).strip().rstrip("/")
+    if "?" in base:
+        return base + "&catalogo=1"
+    return base + "/?catalogo=1"
+
+
+def fetch_image_bytes(url: str, timeout: int = 5) -> bytes | None:
+    if not url:
+        return None
+    try:
+        req = urllib.request.Request(str(url), headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = r.read(900_000)
+        return data
+    except Exception:
+        return None
+
+
+def build_catalog_pdf(productos_df: pd.DataFrame, cfg: dict, incluir_stock: bool = True) -> bytes:
+    """Genera catálogo PDF liviano para clientes. No incluye costos."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
+    from reportlab.lib.utils import ImageReader
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1.1*cm, leftMargin=1.1*cm, topMargin=1.0*cm, bottomMargin=1.0*cm)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="StoreTitle", parent=styles["Title"], fontSize=22, textColor=colors.HexColor("#111827"), leading=26, spaceAfter=6))
+    styles.add(ParagraphStyle(name="Muted", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#667085"), leading=12))
+    styles.add(ParagraphStyle(name="ProductName", parent=styles["Heading3"], fontSize=11, textColor=colors.HexColor("#111827"), leading=14, spaceAfter=3))
+    styles.add(ParagraphStyle(name="Price", parent=styles["Normal"], fontSize=13, textColor=colors.HexColor("#b42318"), leading=16, fontName="Helvetica-Bold"))
+
+    story = []
+    logo_data = fetch_image_bytes(str(cfg.get("logo_url", "")))
+    if logo_data:
+        try:
+            img = Image(io.BytesIO(logo_data), width=4.6*cm, height=1.6*cm)
+            img.hAlign = "LEFT"
+            story.append(img)
+            story.append(Spacer(1, 4))
+        except Exception:
+            pass
+    story.append(Paragraph(str(cfg.get("nombre_tienda", APP_NAME)), styles["StoreTitle"]))
+    info = []
+    if cfg.get("direccion"):
+        info.append(str(cfg.get("direccion")))
+    if cfg.get("telefono"):
+        info.append(f"WhatsApp: {cfg.get('telefono')}")
+    info.append(f"Catálogo actualizado: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    story.append(Paragraph(" | ".join(info), styles["Muted"]))
+    story.append(Spacer(1, 12))
+
+    if productos_df is None or productos_df.empty:
+        story.append(Paragraph("No hay productos activos para mostrar.", styles["Normal"]))
+    else:
+        df = productos_df.copy()
+        df = df.sort_values(["categoria", "nombre_producto"])
+        data_rows = []
+        for _, r in df.iterrows():
+            stock_txt = "Disponible" if float(r.get("stock_actual", 0) or 0) > 0 else "Consultar disponibilidad"
+            if incluir_stock and float(r.get("stock_actual", 0) or 0) <= 0:
+                stock_txt = "Consultar disponibilidad"
+            code_cat = f"{r.get('codigo','')} · {r.get('categoria','')}"
+            product_html = f"<b>{html.escape(str(r.get('nombre_producto','')))}</b><br/><font color='#667085'>{html.escape(str(code_cat))}</font>"
+            if str(r.get("descripcion", "") or "").strip():
+                product_html += f"<br/><font color='#667085'>{html.escape(str(r.get('descripcion'))[:120])}</font>"
+            data_rows.append([
+                Paragraph(product_html, styles["Normal"]),
+                Paragraph(money(r.get("precio_venta")), styles["Price"]),
+                Paragraph(stock_txt, styles["Muted"]),
+            ])
+        table = Table([["Producto", "Precio", "Disponibilidad"]] + data_rows, colWidths=[10.2*cm, 3.0*cm, 4.0*cm], repeatRows=1)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#111827")),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,0), 9),
+            ("GRID", (0,0), (-1,-1), 0.25, colors.HexColor("#e5e7eb")),
+            ("VALIGN", (0,0), (-1,-1), "TOP"),
+            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f8fafc")]),
+            ("LEFTPADDING", (0,0), (-1,-1), 7),
+            ("RIGHTPADDING", (0,0), (-1,-1), 7),
+            ("TOPPADDING", (0,0), (-1,-1), 7),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 7),
+        ]))
+        story.append(table)
+    story.append(Spacer(1, 10))
+    msg = str(cfg.get("mensaje_comprobante") or "Gracias por su compra.")
+    story.append(Paragraph(msg, styles["Muted"]))
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def page_catalogo_clientes(public: bool = False):
+    cfg = get_store_config()
+    productos = productos_con_stock()
+    categorias = query_df("SELECT * FROM categorias WHERE estado='Activo' ORDER BY nombre_categoria")
+    if public:
+        logo = cfg.get("logo_url", "")
+        logo_html = f"<img src='{html.escape(logo, quote=True)}' style='max-height:76px;max-width:260px;object-fit:contain;margin-bottom:8px;'>" if logo else ""
+        st.markdown(f"""
+        <div class='public-hero'>
+          {logo_html}
+          <h1>{html.escape(cfg.get('nombre_tienda', APP_NAME))}</h1>
+          <p>Catálogo de productos · Consulta disponibilidad por WhatsApp.</p>
+          <p>{html.escape(cfg.get('direccion',''))} {(' · WhatsApp ' + html.escape(cfg.get('telefono',''))) if cfg.get('telefono') else ''}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='clomar-hero'><h1>📘 Catálogo para clientes</h1><p>Vista comercial, PDF y consultas por WhatsApp. No muestra costos.</p></div>", unsafe_allow_html=True)
+
+    c1, c2, c3 = st.columns([1.6, 1, .8])
+    with c1:
+        buscar = st.text_input("Buscar en catálogo", placeholder="Nombre, código, categoría...", key="cat_cliente_buscar")
+    with c2:
+        cats = ["Todas"] + (categorias["nombre_categoria"].tolist() if not categorias.empty else [])
+        categoria = st.selectbox("Categoría", cats, key="cat_cliente_categoria")
+    with c3:
+        solo_stock = st.toggle("Solo con stock", value=True, key="cat_cliente_stock")
+
+    fil = productos.copy()
+    if buscar.strip() and not fil.empty:
+        txt = buscar.lower().strip()
+        fil = fil[
+            fil["nombre_producto"].astype(str).str.lower().str.contains(txt, na=False) |
+            fil["codigo"].astype(str).str.lower().str.contains(txt, na=False) |
+            fil["categoria"].astype(str).str.lower().str.contains(txt, na=False)
+        ]
+    if categoria != "Todas" and not fil.empty:
+        fil = fil[fil["categoria"] == categoria]
+    if solo_stock and not fil.empty:
+        fil = fil[fil["stock_actual"].astype(float) > 0]
+
+    p1, p2, p3 = st.columns([1, 1, 1])
+    with p1:
+        st.download_button(
+            "📄 Descargar catálogo PDF",
+            data=build_catalog_pdf(fil, cfg),
+            file_name=f"catalogo_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            type="primary",
+        )
+    with p2:
+        if not public:
+            st.link_button("🌐 Abrir catálogo público", public_catalog_url(), use_container_width=True)
+    with p3:
+        if cfg.get("telefono"):
+            st.link_button("💬 WhatsApp tienda", f"https://wa.me/{normalize_phone(cfg.get('telefono'))}", use_container_width=True)
+
+    st.caption(f"Productos visibles: {len(fil) if fil is not None else 0}. El catálogo no muestra costos internos.")
+    if fil.empty:
+        st.info("No hay productos para mostrar con esos filtros.")
+        return
+
+    cols = st.columns(3)
+    for i, (_, r) in enumerate(fil.head(120).iterrows()):
+        with cols[i % 3]:
+            img_url = str(r.get("imagen_url", "") or "").strip()
+            if img_url:
+                img = f"<img class='catalog-img' src='{html.escape(img_url, quote=True)}'>"
+            else:
+                img = "<div class='catalog-empty-img'>🛍️</div>"
+            stock = float(r.get("stock_actual", 0) or 0)
+            stock_chip = "Disponible" if stock > 0 else "Consultar"
+            st.markdown(f"""
+            <div class='catalog-card'>
+              {img}
+              <div class='product-name'>{html.escape(str(r.get('nombre_producto','')))}</div>
+              <div class='product-meta'>{html.escape(str(r.get('codigo','')))} · {html.escape(str(r.get('categoria','')))}</div>
+              <div class='product-price'>{money(r.get('precio_venta'))}</div>
+              <span class='chip {'chip-ok' if stock > 0 else 'chip-warn'}'>{stock_chip}</span>
+            </div>
+            """, unsafe_allow_html=True)
+            st.link_button("💬 Consultar por WhatsApp", whatsapp_product_url(str(r.get("nombre_producto", "Producto")), r.get("precio_venta"), cfg), use_container_width=True)
+
 def page_productos():
     st.markdown("<div class='clomar-hero'><h1>📦 Productos</h1><p>Catálogo visual, importación desde Excel, precios y stock.</p></div>", unsafe_allow_html=True)
     productos = productos_con_stock()
@@ -1460,6 +1671,7 @@ def page_configuracion_tienda():
             direccion = st.text_area("Dirección", value=cfg.get("direccion", ""))
             mensaje = st.text_input("Mensaje del comprobante", value=cfg.get("mensaje_comprobante", "Gracias por su compra."))
             color = st.color_picker("Color principal", value=cfg.get("color_principal", "#111827") or "#111827")
+            catalogo_url_base = st.text_input("URL base de la app para catálogo público", value=cfg.get("catalogo_url_base", get_secret("PUBLIC_APP_URL", "https://clomar-store.streamlit.app")))
             if st.form_submit_button("Guardar configuración", type="primary", use_container_width=True):
                 set_store_config({
                     "nombre_tienda": nombre,
@@ -1468,6 +1680,7 @@ def page_configuracion_tienda():
                     "direccion": direccion,
                     "mensaje_comprobante": mensaje,
                     "color_principal": color,
+                    "catalogo_url_base": catalogo_url_base,
                 })
                 clear_app_cache()
                 st.success("Configuración guardada.")
@@ -1486,6 +1699,7 @@ def page_configuracion_tienda():
         </div>
         """, unsafe_allow_html=True)
         st.info("Para usar tu logo, pega un enlace directo de imagen. Más adelante podemos integrar un almacenamiento dedicado para fotos y logos.")
+        st.link_button("Abrir catálogo público", public_catalog_url(), use_container_width=True)
 
 
 # ============================================================
@@ -1498,10 +1712,10 @@ def sidebar_nav():
     st.sidebar.caption(f"{u['nombre']} · {u['rol']}")
     if is_admin():
         opciones = [
-            "📊 Panel dueño", "🧾 Ventas", "📦 Productos", "📊 Inventario", "📥 Ingreso mercadería", "👥 Clientes", "💰 Caja", "📈 Reportes", "🔐 Usuarios", "⚙️ Configuración", "💾 Backup", "☁️ Estado nube"
+            "📊 Panel dueño", "🧾 Ventas", "📦 Productos", "📘 Catálogo clientes", "📊 Inventario", "📥 Ingreso mercadería", "👥 Clientes", "💰 Caja", "📈 Reportes", "🔐 Usuarios", "⚙️ Configuración", "💾 Backup", "☁️ Estado nube"
         ]
     else:
-        opciones = ["🧾 Ventas", "👥 Clientes", "📦 Productos"]
+        opciones = ["🧾 Ventas", "📦 Productos", "📘 Catálogo clientes", "👥 Clientes"]
     selected = st.sidebar.radio("Menú", opciones, label_visibility="collapsed")
     st.sidebar.divider()
     if st.sidebar.button("Cerrar sesión", use_container_width=True):
@@ -1510,13 +1724,21 @@ def sidebar_nav():
     return selected
 
 
-if "user" not in st.session_state:
+try:
+    _public_catalog = str(st.query_params.get("catalogo", "")) == "1"
+except Exception:
+    _public_catalog = False
+
+if _public_catalog:
+    page_catalogo_clientes(public=True)
+elif "user" not in st.session_state:
     login_screen()
 else:
     selected = sidebar_nav()
     if selected == "📊 Panel dueño": page_panel_dueno()
     elif selected == "🧾 Ventas": page_ventas()
     elif selected == "📦 Productos": page_productos()
+    elif selected == "📘 Catálogo clientes": page_catalogo_clientes(public=False)
     elif selected == "📊 Inventario": page_inventario()
     elif selected == "📥 Ingreso mercadería": page_ingreso_mercaderia()
     elif selected == "👥 Clientes": page_clientes()
