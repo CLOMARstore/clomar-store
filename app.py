@@ -10,6 +10,7 @@ from urllib.parse import quote
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import streamlit.components.v1 as components
 from sqlalchemy import create_engine, text
 
 try:
@@ -26,7 +27,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V25.2 POS Rápido + Créditos Reales"
+APP_VERSION = "V25.3 POS Fluido + Comprobante Pro"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -251,6 +252,22 @@ def init_db():
     ]
     for s in ddl:
         exec_sql(s)
+
+    # Índices para que la nube responda mejor en ventas, créditos, caja e inventario.
+    for idx in [
+        "CREATE INDEX IF NOT EXISTS idx_productos_codigo ON productos(codigo)",
+        "CREATE INDEX IF NOT EXISTS idx_productos_nombre ON productos(nombre_producto)",
+        "CREATE INDEX IF NOT EXISTS idx_mov_stock_producto ON movimientos_stock(id_producto)",
+        "CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha)",
+        "CREATE INDEX IF NOT EXISTS idx_ventas_saldo ON ventas(saldo_pendiente)",
+        "CREATE INDEX IF NOT EXISTS idx_detalle_venta ON detalle_ventas(id_venta)",
+        "CREATE INDEX IF NOT EXISTS idx_caja_fecha ON caja(fecha)",
+        "CREATE INDEX IF NOT EXISTS idx_pagos_credito_venta ON pagos_credito(id_venta)",
+    ]:
+        try:
+            exec_sql(idx)
+        except Exception:
+            pass
 
     # Migraciones suaves para tablas antiguas
     safe_alter("productos", "descripcion TEXT DEFAULT ''")
@@ -496,21 +513,21 @@ def inject_css():
     :root {{ --primary:{color}; --dark:#0f172a; --muted:#64748b; --line:#e5e7eb; --bg:#f6f8fc; --danger:#ef4444; --ok:#16a34a; }}
     .stApp {{ background:#f6f8fc; color:#111827; }}
     header[data-testid="stHeader"] {{ background:#0b0f19; }}
-    .block-container {{ padding-top:1.05rem; padding-bottom:2.4rem; max-width:1500px; }}
+    .block-container {{ padding-top:.65rem; padding-bottom:2.0rem; max-width:1480px; }}
     section[data-testid="stSidebar"] {{ background:#ffffff; border-right:1px solid #e5e7eb; }}
     section[data-testid="stSidebar"] * {{ color:#111827 !important; opacity:1 !important; }}
     section[data-testid="stSidebar"] button {{ background:#ffffff !important; color:#111827 !important; border:1px solid #e5e7eb !important; }}
     .sidebar-logo {{ display:flex; align-items:center; gap:10px; margin:8px 0 18px; }}
     .sidebar-logo img {{ width:38px; height:38px; object-fit:contain; border-radius:10px; }}
     .sidebar-title {{ font-size:20px; font-weight:900; color:#111827 !important; }}
-    .clomar-hero {{ background:linear-gradient(135deg,#111827,#1e293b); border-radius:0 0 22px 22px; padding:28px 34px; margin-bottom:24px; box-shadow:0 16px 34px rgba(15,23,42,.14); }}
+    .clomar-hero {{ background:linear-gradient(135deg,#111827,#1e293b); border-radius:0 0 18px 18px; padding:18px 28px; margin-bottom:18px; box-shadow:0 12px 26px rgba(15,23,42,.12); }}
     .clomar-hero, .clomar-hero * {{ color:#ffffff !important; opacity:1 !important; }}
-    .clomar-hero h1 {{ margin:0; font-size:38px; line-height:1.08; font-weight:950; letter-spacing:-.02em; }}
-    .clomar-hero p {{ margin:13px 0 0; color:#e5e7eb !important; font-size:16px; }}
+    .clomar-hero h1 {{ margin:0; font-size:32px; line-height:1.08; font-weight:950; letter-spacing:-.02em; }}
+    .clomar-hero p {{ margin:9px 0 0; color:#e5e7eb !important; font-size:15px; }}
     .card, .product-card, .kpi-card, .receipt-box {{ background:#fff; border:1px solid #e5e7eb; border-radius:20px; padding:20px; box-shadow:0 8px 25px rgba(15,23,42,.06); }}
     .kpi-label {{ color:#6b7280; font-size:13px; font-weight:900; letter-spacing:.06em; text-transform:uppercase; }}
     .kpi-value {{ color:#0f172a; font-size:34px; font-weight:950; margin-top:12px; }}
-    .product-card {{ overflow:hidden; min-height:330px; display:flex; flex-direction:column; gap:9px; }}
+    .product-card {{ overflow:hidden; min-height:310px; display:flex; flex-direction:column; gap:9px; }}
     .product-img-wrap {{ width:100%; height:190px; background:linear-gradient(135deg,#fff7ed,#fdf2f8); border:1px solid #eef2f7; border-radius:16px; overflow:hidden; display:flex; align-items:center; justify-content:center; margin-bottom:8px; }}
     .product-img-wrap.no-img::after {{ content:'🛍️'; font-size:58px; opacity:.65; }}
     .product-img {{ width:100%; height:100%; object-fit:cover; display:block; }}
@@ -541,7 +558,7 @@ def inject_css():
     .clomar-table th {{ background:#f8fafc; color:#475569; text-align:left; padding:14px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; }}
     .clomar-table td {{ padding:14px; border-top:1px solid #eef2f7; color:#111827; }}
     .small-note {{ color:#64748b; font-size:13px; }}
-    .pos-card {{ background:#fff; border:1px solid #e5e7eb; border-radius:16px; padding:14px; margin-bottom:10px; box-shadow:0 6px 18px rgba(15,23,42,.05); }}
+    .pos-card {{ background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:12px; margin-bottom:8px; box-shadow:0 5px 14px rgba(15,23,42,.04); }}
     .pos-title {{ color:#111827; font-weight:950; font-size:16px; line-height:1.25; }}
     .pos-meta {{ color:#64748b; font-size:12px; margin-top:3px; }}
     .pos-price {{ color:#0f172a; font-size:22px; font-weight:950; margin:8px 0; }}
@@ -549,7 +566,22 @@ def inject_css():
     .pay-box {{ background:#fff; border:1px solid #e5e7eb; border-radius:20px; padding:18px; box-shadow:0 8px 25px rgba(15,23,42,.06); }}
     .receipt-actions {{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }}
     .print-button {{ background:#0f172a; color:white !important; border:0; border-radius:12px; padding:12px 18px; font-weight:900; cursor:pointer; }}
-    @media (max-width: 900px) {{ .clomar-hero h1 {{font-size:30px;}} .product-img-wrap {{height:155px;}} .block-container {{padding-left:.75rem; padding-right:.75rem;}} }}
+
+    .ticket-box {{ background:#fff; border:1px solid #e5e7eb; border-radius:18px; padding:24px; box-shadow:0 8px 24px rgba(15,23,42,.06); max-width:860px; margin:0 auto; }}
+    .ticket-head {{ display:flex; justify-content:space-between; gap:18px; align-items:flex-start; border-bottom:1px dashed #cbd5e1; padding-bottom:14px; margin-bottom:14px; }}
+    .ticket-logo {{ max-width:160px; max-height:72px; object-fit:contain; }}
+    .ticket-title {{ font-size:28px; font-weight:950; color:#0f172a; margin:0; }}
+    .ticket-sub {{ color:#64748b; font-size:13px; line-height:1.35; }}
+    .ticket-meta {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 18px; margin:12px 0 16px; font-size:14px; color:#111827; }}
+    .ticket-total {{ display:flex; justify-content:space-between; align-items:center; border-top:1px dashed #cbd5e1; margin-top:14px; padding-top:14px; font-size:26px; font-weight:950; color:#0f172a; }}
+    .quick-pay-note {{ background:#ecfeff; border:1px solid #bae6fd; color:#075985; padding:12px 14px; border-radius:14px; font-weight:800; }}
+    @media print {{
+        header[data-testid="stHeader"], section[data-testid="stSidebar"], .no-print, .stButton, .stDownloadButton, div[data-testid="stToolbar"], iframe {{ display:none !important; }}
+        .block-container {{ max-width:100% !important; padding:0 !important; }}
+        .ticket-box, .receipt-box {{ box-shadow:none !important; border:0 !important; margin:0 !important; padding:0 !important; }}
+        .stApp {{ background:#fff !important; }}
+    }}
+    @media (max-width: 900px) {{ .clomar-hero h1 {{font-size:28px;}} .product-img-wrap {{height:145px;}} .block-container {{padding-left:.75rem; padding-right:.75rem;}} }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -681,9 +713,22 @@ def add_product_button(r, keyprefix="add"):
         st.rerun()
 
 
+
+def fmt_dt(v):
+    try:
+        return pd.to_datetime(v).strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return str(v or "")
+
+
+def print_button_component(label="🖨️ Imprimir"):
+    components.html(f"""
+    <button onclick="window.parent.print()" style="width:100%;height:44px;border:0;border-radius:12px;background:#0f172a;color:white;font-weight:900;font-size:15px;cursor:pointer;">{label}</button>
+    """, height=52)
+
 def render_receipt(id_venta: int):
     venta = query_df("""
-        SELECT v.*, COALESCE(c.nombre_cliente,'Cliente general') AS cliente
+        SELECT v.*, COALESCE(c.nombre_cliente,'Cliente general') AS cliente, COALESCE(c.telefono,'') AS cliente_telefono
         FROM ventas v LEFT JOIN clientes c ON c.id_cliente=v.id_cliente
         WHERE v.id_venta=:id
     """, {"id": id_venta})
@@ -692,32 +737,53 @@ def render_receipt(id_venta: int):
     v = venta.iloc[0]
     det = query_df("SELECT * FROM detalle_ventas WHERE id_venta=:id", {"id": id_venta})
     cfg = cached_settings()
-    rows = "".join([f"<tr><td>{esc(r['producto_nombre'])}</td><td>{num(r['cantidad'])}</td><td>{money(r['precio_unitario'])}</td><td>{money(r['subtotal'])}</td></tr>" for _, r in det.iterrows()])
+    rows = "".join([
+        f"<tr><td>{esc(r['producto_nombre'])}</td><td style='text-align:center'>{num(r['cantidad'])}</td><td style='text-align:right'>{money(r['precio_unitario'])}</td><td style='text-align:right'><b>{money(r['subtotal'])}</b></td></tr>"
+        for _, r in det.iterrows()
+    ])
     logo = cfg.get("logo_url", "")
-    logo_html = f"<img src='{esc(logo)}' style='max-width:150px;max-height:70px;object-fit:contain'>" if logo else ""
+    logo_html = f"<img class='ticket-logo' src='{esc(logo)}'>" if logo else ""
+    pagado = float(v.get('monto_pagado') or 0)
+    saldo = float(v.get('saldo_pendiente') or 0)
+    estado = str(v.get('estado_pago') or '')
+    metodo = str(v.get('metodo_pago') or '')
     st.markdown(f"""
-    <div class='receipt-box'>
-      {logo_html}
-      <h3>{esc(cfg.get('store_name') or APP_NAME_DEFAULT)}</h3>
-      <div class='product-meta'>{esc(cfg.get('direccion',''))} · {esc(cfg.get('telefono',''))}</div>
-      <hr>
-      <b>Comprobante:</b> {esc(v['comprobante'])}<br>
-      <b>Fecha:</b> {esc(v['fecha'])}<br>
-      <b>Cliente:</b> {esc(v['cliente'])}<br>
-      <b>Vendedor:</b> {esc(v['vendedor_nombre'])}<br><br>
-      <table class='clomar-table'><thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr></thead><tbody>{rows}</tbody></table>
-      <h2>Total: {money(v['total_venta'])}</h2>
-      <div class='product-meta'>{esc(cfg.get('mensaje_comprobante','Gracias por su compra.'))}</div>
+    <div class='ticket-box' id='ticket-print-area'>
+      <div class='ticket-head'>
+        <div>
+          {logo_html}
+          <h2 class='ticket-title'>{esc(cfg.get('store_name') or APP_NAME_DEFAULT)}</h2>
+          <div class='ticket-sub'>{esc(cfg.get('direccion',''))}</div>
+          <div class='ticket-sub'>{esc(cfg.get('telefono',''))}</div>
+        </div>
+        <div style='text-align:right'>
+          <div class='chip chip-dark'>COMPROBANTE</div>
+          <div style='font-size:20px;font-weight:950;margin-top:8px;color:#0f172a'>{esc(v['comprobante'])}</div>
+          <div class='ticket-sub'>{fmt_dt(v['fecha'])}</div>
+        </div>
+      </div>
+      <div class='ticket-meta'>
+        <div><b>Cliente:</b> {esc(v['cliente'])}</div>
+        <div><b>Teléfono:</b> {esc(v.get('cliente_telefono',''))}</div>
+        <div><b>Vendedor:</b> {esc(v['vendedor_nombre'])}</div>
+        <div><b>Pago:</b> {esc(metodo)} · {esc(estado)}</div>
+      </div>
+      <table class='clomar-table'><thead><tr><th>Producto</th><th style='text-align:center'>Cant.</th><th style='text-align:right'>Precio</th><th style='text-align:right'>Subtotal</th></tr></thead><tbody>{rows}</tbody></table>
+      <div class='ticket-total'><span>Total</span><span>{money(v['total_venta'])}</span></div>
+      <div class='ticket-meta' style='margin-top:12px'>
+        <div><b>Pagado:</b> {money(pagado)}</div>
+        <div><b>Saldo:</b> {money(saldo)}</div>
+      </div>
+      <div class='ticket-sub' style='text-align:center;margin-top:14px'>{esc(cfg.get('mensaje_comprobante','Gracias por su compra.'))}</div>
     </div>
     """, unsafe_allow_html=True)
-
 
 
 def generate_receipt_pdf(id_venta: int):
     if colors is None:
         return None
     venta = query_df("""
-        SELECT v.*, COALESCE(c.nombre_cliente,'Cliente general') AS cliente
+        SELECT v.*, COALESCE(c.nombre_cliente,'Cliente general') AS cliente, COALESCE(c.telefono,'') AS cliente_telefono
         FROM ventas v LEFT JOIN clientes c ON c.id_cliente=v.id_cliente
         WHERE v.id_venta=:id
     """, {"id": id_venta})
@@ -729,43 +795,50 @@ def generate_receipt_pdf(id_venta: int):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1.2*cm, leftMargin=1.2*cm, topMargin=1.1*cm, bottomMargin=1.1*cm)
     styles = getSampleStyleSheet()
-    title = ParagraphStyle('ReceiptTitle', parent=styles['Title'], fontSize=18, leading=22, textColor=colors.HexColor('#0f172a'))
-    normal = ParagraphStyle('ReceiptNormal', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#111827'))
+    title = ParagraphStyle('TitlePro', parent=styles['Title'], fontSize=20, leading=24, textColor=colors.HexColor('#0f172a'), alignment=1)
+    normal = ParagraphStyle('NormalPro', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#111827'))
+    small = ParagraphStyle('SmallPro', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#64748b'))
     story = []
     story.append(Paragraph(str(cfg.get('store_name') or APP_NAME_DEFAULT), title))
     if cfg.get('direccion'):
-        story.append(Paragraph(str(cfg.get('direccion')), normal))
+        story.append(Paragraph(str(cfg.get('direccion')), small))
     if cfg.get('telefono'):
-        story.append(Paragraph(f"WhatsApp/Teléfono: {cfg.get('telefono')}", normal))
+        story.append(Paragraph(f"Tel./WhatsApp: {cfg.get('telefono')}", small))
     story.append(Spacer(1, 0.25*cm))
-    story.append(Paragraph(f"<b>Comprobante:</b> {v['comprobante']}", normal))
-    story.append(Paragraph(f"<b>Fecha:</b> {v['fecha']}", normal))
-    story.append(Paragraph(f"<b>Cliente:</b> {v['cliente']}", normal))
-    story.append(Paragraph(f"<b>Vendedor:</b> {v['vendedor_nombre']}", normal))
-    story.append(Spacer(1, 0.25*cm))
+    meta = [
+        [Paragraph(f"<b>Comprobante:</b> {v['comprobante']}", normal), Paragraph(f"<b>Fecha:</b> {fmt_dt(v['fecha'])}", normal)],
+        [Paragraph(f"<b>Cliente:</b> {v['cliente']}", normal), Paragraph(f"<b>Vendedor:</b> {v['vendedor_nombre']}", normal)],
+        [Paragraph(f"<b>Pago:</b> {v.get('metodo_pago','')}", normal), Paragraph(f"<b>Estado:</b> {v.get('estado_pago','')}", normal)],
+    ]
+    mt = Table(meta, colWidths=[8.2*cm, 8.2*cm])
+    mt.setStyle(TableStyle([('BOX',(0,0),(-1,-1),0.6,colors.HexColor('#e5e7eb')), ('INNERGRID',(0,0),(-1,-1),0.4,colors.HexColor('#e5e7eb')), ('BACKGROUND',(0,0),(-1,-1),colors.HexColor('#f8fafc')), ('PADDING',(0,0),(-1,-1),7)]))
+    story.append(mt)
+    story.append(Spacer(1, 0.28*cm))
     data = [["Producto", "Cant.", "Precio", "Subtotal"]]
     for _, r in det.iterrows():
-        data.append([str(r['producto_nombre'])[:48], num(r['cantidad']), money(r['precio_unitario']), money(r['subtotal'])])
-    tbl = Table(data, colWidths=[8.2*cm, 2.0*cm, 3.0*cm, 3.0*cm])
+        data.append([Paragraph(str(r['producto_nombre'])[:60], normal), num(r['cantidad']), money(r['precio_unitario']), money(r['subtotal'])])
+    tbl = Table(data, colWidths=[8.2*cm, 2.0*cm, 3.0*cm, 3.2*cm])
     tbl.setStyle(TableStyle([
-        ('BACKGROUND',(0,0),(-1,0), colors.HexColor('#f1f5f9')),
-        ('TEXTCOLOR',(0,0),(-1,0), colors.HexColor('#0f172a')),
-        ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
-        ('FONTSIZE',(0,0),(-1,-1),8),
-        ('GRID',(0,0),(-1,-1),0.25, colors.HexColor('#e5e7eb')),
-        ('VALIGN',(0,0),(-1,-1),'TOP'),
-        ('ALIGN',(1,1),(-1,-1),'RIGHT')
+        ('BACKGROUND',(0,0),(-1,0),colors.HexColor('#f1f5f9')), ('TEXTCOLOR',(0,0),(-1,0),colors.HexColor('#334155')),
+        ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'), ('ALIGN',(1,1),(-1,-1),'RIGHT'), ('ALIGN',(1,0),(-1,0),'CENTER'),
+        ('GRID',(0,0),(-1,-1),0.4,colors.HexColor('#e5e7eb')), ('PADDING',(0,0),(-1,-1),7),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE')
     ]))
     story.append(tbl)
-    story.append(Spacer(1, 0.25*cm))
-    story.append(Paragraph(f"<b>Total:</b> {money(v['total_venta'])}", title))
-    story.append(Paragraph(f"<b>Pagado:</b> {money(v['monto_pagado'])} &nbsp;&nbsp; <b>Saldo:</b> {money(v['saldo_pendiente'])}", normal))
-    if cfg.get('mensaje_comprobante'):
-        story.append(Spacer(1, 0.2*cm))
-        story.append(Paragraph(str(cfg.get('mensaje_comprobante')), normal))
+    story.append(Spacer(1, 0.22*cm))
+    total_tbl = Table([
+        ["TOTAL", money(v['total_venta'])],
+        ["PAGADO", money(v.get('monto_pagado',0))],
+        ["SALDO", money(v.get('saldo_pendiente',0))],
+    ], colWidths=[12.2*cm, 4.2*cm])
+    total_tbl.setStyle(TableStyle([('ALIGN',(1,0),(1,-1),'RIGHT'), ('FONTNAME',(0,0),(-1,-1),'Helvetica-Bold'), ('FONTSIZE',(0,0),(-1,-1),12), ('LINEABOVE',(0,0),(-1,0),1,colors.HexColor('#0f172a')), ('PADDING',(0,0),(-1,-1),8)]))
+    story.append(total_tbl)
+    story.append(Spacer(1, .3*cm))
+    story.append(Paragraph(str(cfg.get('mensaje_comprobante','Gracias por su compra.')), small))
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
+
 
 def generate_catalog_pdf(df: pd.DataFrame):
     if colors is None:
@@ -865,153 +938,124 @@ def page_panel_dueno():
 
 
 def page_ventas():
-    hero("POS rápido", "Paso 1: arma el carrito. Paso 2: cobra contado o registra crédito. Paso 3: decide si imprimes.", "🧾")
+    hero("Venta rápida", "1) Selecciona producto y cantidad. 2) Revisa carrito. 3) Cobra o registra crédito. 4) Imprime o descarga comprobante.", "🧾")
     if "cart" not in st.session_state:
         st.session_state.cart = []
     if "pos_step" not in st.session_state:
         st.session_state.pos_step = "carrito"
 
-    # Vista de venta terminada: no recarga productos; muestra solo comprobante y acciones.
+    # Venta finalizada: solo comprobante y acciones. No carga productos, para que sea rápido.
     if st.session_state.get("show_success_sale") and st.session_state.get("last_sale_id"):
         venta_id = int(st.session_state.last_sale_id)
         vdf = query_df("SELECT comprobante,total_venta,monto_pagado,saldo_pendiente,estado_pago FROM ventas WHERE id_venta=:id", {"id": venta_id})
         saldo = float(vdf.iloc[0]["saldo_pendiente"] or 0) if not vdf.empty else 0
-        st.markdown("<div class='success-panel'><div class='success-icon'>✅</div><div class='success-title'>¡Venta registrada!</div><div class='success-sub'>Ahora puedes imprimir, descargar o seguir vendiendo.</div></div>", unsafe_allow_html=True)
+        st.markdown("<div class='success-panel'><div class='success-icon'>✅</div><div class='success-title'>¡Venta registrada!</div><div class='success-sub'>Revisa el comprobante. Puedes imprimir, descargar PDF o seguir vendiendo.</div></div>", unsafe_allow_html=True)
         render_receipt(venta_id)
         pdf = generate_receipt_pdf(venta_id)
-        a,b,c,d = st.columns(4)
+        st.markdown("<div class='no-print'>", unsafe_allow_html=True)
+        a,b,c = st.columns(3)
         with a:
             if pdf:
                 st.download_button("⬇️ Descargar PDF", data=pdf, file_name=f"comprobante_{vdf.iloc[0]['comprobante'] if not vdf.empty else venta_id}.pdf", mime="application/pdf", use_container_width=True)
         with b:
-            st.markdown("<button class='print-button' onclick='window.print()'>🖨️ Imprimir</button>", unsafe_allow_html=True)
+            print_button_component("🖨️ Imprimir")
         with c:
-            if st.button("No imprimir", use_container_width=True):
-                st.session_state.show_success_sale = False
-                st.session_state.pos_step = "carrito"
-                st.rerun()
-        with d:
             if st.button("Seguir vendiendo", type="primary", use_container_width=True):
                 st.session_state.show_success_sale = False
                 st.session_state.pos_step = "carrito"
                 st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
         if saldo > 0:
-            st.warning(f"Esta venta quedó con saldo pendiente: {money(saldo)}. Revísala en 💳 Créditos.")
+            st.warning(f"Esta venta quedó con saldo pendiente: {money(saldo)}. Registra abonos en 💳 Créditos → Registrar abono/pago.")
         return
 
-    # Total actual del carrito
     total_cart = sum(float(i.get("cantidad", 0)) * float(i.get("precio", 0)) for i in st.session_state.cart)
-    s1, s2, s3 = st.columns([1,1,1])
-    with s1:
-        kpi("Productos en carrito", str(len(st.session_state.cart)), "Edítalos antes de cobrar")
-    with s2:
-        kpi("Total actual", money(total_cart), "No se registra hasta confirmar")
-    with s3:
-        kpi("Paso", "Carrito" if st.session_state.pos_step == "carrito" else "Pago", "Flujo rápido POS")
+    a,b,c = st.columns(3)
+    with a: kpi("Carrito", f"{len(st.session_state.cart)} productos", "No se registra hasta confirmar")
+    with b: kpi("Total", money(total_cart), "Monto actual")
+    with c: kpi("Paso", "Carrito" if st.session_state.pos_step == "carrito" else "Pago", "Flujo POS")
 
     if st.session_state.pos_step == "carrito":
         productos = productos_con_stock()
-        categorias = sorted([x for x in productos["categoria"].dropna().unique()]) if not productos.empty else []
-        left, right = st.columns([1.65, 1])
+        productos = productos[productos["stock_actual"].astype(float) > 0].copy() if not productos.empty else productos
+        left, right = st.columns([1.15, 1.0])
         with left:
-            f1, f2, f3 = st.columns([1.45, .75, .55])
-            with f1:
-                buscar = st.text_input("Buscar producto", placeholder="Nombre, código o marca...", key="buscar_venta_fast")
-            with f2:
-                cat = st.selectbox("Categoría", ["Todas"] + categorias, key="cat_venta_fast")
-            with f3:
-                solo_stock = st.toggle("Solo stock", value=True, key="stock_venta_fast")
-
-            fil = productos.copy()
-            if solo_stock and not fil.empty:
-                fil = fil[fil["stock_actual"].astype(float) > 0]
-            if buscar.strip():
-                txt = buscar.lower().strip()
-                fil = fil[
-                    fil["nombre_producto"].astype(str).str.lower().str.contains(txt, na=False) |
-                    fil["codigo"].astype(str).str.lower().str.contains(txt, na=False) |
-                    fil["marca"].astype(str).str.lower().str.contains(txt, na=False)
-                ]
-            if cat != "Todas":
-                fil = fil[fil["categoria"].eq(cat)]
-            fil = fil.head(18)
-            if fil.empty:
-                st.info("No hay productos que coincidan.")
+            st.subheader("Agregar producto")
+            st.markdown("<div class='quick-pay-note'>Usa el buscador del desplegable. Es más rápido que cargar muchas tarjetas con imágenes.</div>", unsafe_allow_html=True)
+            if productos.empty:
+                st.info("No hay productos con stock disponible.")
             else:
-                st.caption("Vista rápida: se muestran máximo 18 productos para que no se ponga lenta. Usa el buscador para encontrar rápido.")
-                cols = st.columns(3)
-                for i, (_, r) in enumerate(fil.iterrows()):
-                    with cols[i % 3]:
-                        stock = float(r.get("stock_actual") or 0)
-                        st.markdown(f"""
-                        <div class='pos-card'>
-                            <div class='pos-title'>{esc(r.get('nombre_producto'))}</div>
-                            <div class='pos-meta'>{esc(r.get('codigo'))} · {esc(r.get('categoria'))}</div>
-                            <div class='pos-price'>{money(r.get('precio_venta'))}</div>
-                            <span class='chip {'chip-ok' if stock > float(r.get('stock_minimo') or 0) else 'chip-red'}'>Stock {num(stock)}</span>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        qty = st.number_input("Cantidad", min_value=1.0, max_value=max(stock,1.0), value=1.0, step=1.0, key=f"qty_fast_{r['id_producto']}", disabled=stock<=0)
-                        if st.button("Agregar", key=f"add_fast_{r['id_producto']}", type="primary", use_container_width=True, disabled=stock<=0):
-                            found = False
-                            for item in st.session_state.cart:
-                                if item["id_producto"] == int(r["id_producto"]):
-                                    item["cantidad"] = min(float(item["cantidad"]) + float(qty), stock)
-                                    found = True
-                                    break
-                            if not found:
-                                st.session_state.cart.append({
-                                    "id_producto": int(r["id_producto"]),
-                                    "nombre": r["nombre_producto"],
-                                    "codigo": r.get("codigo", ""),
-                                    "precio": float(r["precio_venta"] or 0),
-                                    "costo": float(r["costo_unitario"] or 0),
-                                    "stock": stock,
-                                    "cantidad": float(qty)
-                                })
-                            st.toast("Agregado al carrito")
-                            st.rerun()
+                productos["label_pos"] = productos.apply(lambda r: f"{normalize_code(r.get('codigo'))} · {r.get('nombre_producto')} · Stock {num(r.get('stock_actual'))} · {money(r.get('precio_venta'))}", axis=1)
+                opciones = productos["label_pos"].tolist()
+                sel = st.selectbox("Producto", opciones, key="pos_producto_select")
+                r = productos[productos["label_pos"].eq(sel)].iloc[0]
+                stock = float(r.get("stock_actual") or 0)
+                p1,p2 = st.columns([.8,.8])
+                with p1:
+                    cantidad = st.number_input("Cantidad", min_value=1.0, max_value=max(stock,1.0), value=1.0, step=1.0, key="pos_cantidad_select")
+                with p2:
+                    if is_admin():
+                        precio = st.number_input("Precio", min_value=0.0, value=float(r.get("precio_venta") or 0), step=1.0, key="pos_precio_select")
+                    else:
+                        precio = float(r.get("precio_venta") or 0)
+                        st.text_input("Precio", value=money(precio), disabled=True)
+                st.markdown(f"<div class='pos-card'><div class='pos-title'>{esc(r.get('nombre_producto'))}</div><div class='pos-meta'>{esc(r.get('codigo'))} · {esc(r.get('categoria'))}</div><div class='pos-price'>{money(precio)}</div><span class='chip chip-ok'>Stock {num(stock)}</span><span class='chip'>Subtotal {money(cantidad*precio)}</span></div>", unsafe_allow_html=True)
+                if st.button("🛒 Agregar al carrito", type="primary", use_container_width=True):
+                    found = False
+                    for item in st.session_state.cart:
+                        if item["id_producto"] == int(r["id_producto"]):
+                            item["cantidad"] = min(float(item["cantidad"]) + float(cantidad), stock)
+                            item["precio"] = float(precio)
+                            found = True
+                            break
+                    if not found:
+                        st.session_state.cart.append({
+                            "id_producto": int(r["id_producto"]), "nombre": r["nombre_producto"], "codigo": r.get("codigo", ""),
+                            "precio": float(precio), "costo": float(r.get("costo_unitario") or 0), "stock": stock, "cantidad": float(cantidad)
+                        })
+                    st.toast("Producto agregado")
+                    st.rerun()
         with right:
             st.subheader("🛒 Carrito")
             if not st.session_state.cart:
                 st.info("Agrega productos para vender.")
             else:
                 total = 0.0
-                nuevo_cart = []
+                nuevo = []
                 for idx, item in enumerate(st.session_state.cart):
                     st.markdown(f"<div class='cart-line'><b>{esc(item['nombre'])}</b><br><span class='product-meta'>{esc(item.get('codigo',''))} · Stock {num(item.get('stock',0))}</span></div>", unsafe_allow_html=True)
-                    cc1, cc2, cc3 = st.columns([.85, .9, .35])
-                    with cc1:
-                        cant = st.number_input("Cant.", min_value=0.0, max_value=float(item["stock"]), value=float(item["cantidad"]), step=1.0, key=f"cant_pos_{idx}")
-                    with cc2:
+                    c1,c2,c3,c4 = st.columns([.65,.85,.75,.32])
+                    with c1:
+                        cant = st.number_input("Cant.", min_value=0.0, max_value=float(item["stock"]), value=float(item["cantidad"]), step=1.0, key=f"cart_cant_{idx}")
+                    with c2:
                         if is_admin():
-                            precio = st.number_input("Precio", min_value=0.0, value=float(item["precio"]), step=1.0, key=f"precio_pos_{idx}")
+                            precio = st.number_input("Precio", min_value=0.0, value=float(item["precio"]), step=1.0, key=f"cart_precio_{idx}")
                         else:
                             precio = float(item["precio"])
-                            st.text_input("Precio", value=money(precio), disabled=True, key=f"precio_pos_view_{idx}")
-                    with cc3:
-                        if st.button("❌", key=f"del_pos_{idx}"):
+                            st.text_input("Precio", value=money(precio), disabled=True, key=f"cart_precio_v_{idx}")
+                    with c3:
+                        st.text_input("Subtotal", value=money(cant*precio), disabled=True, key=f"cart_sub_{idx}")
+                    with c4:
+                        if st.button("❌", key=f"cart_del_{idx}"):
                             cant = 0
                     if cant > 0:
-                        item["cantidad"] = cant
-                        item["precio"] = precio
+                        item["cantidad"] = cant; item["precio"] = precio
                         total += cant * precio
-                        nuevo_cart.append(item)
-                    st.divider()
-                st.session_state.cart = nuevo_cart
+                        nuevo.append(item)
+                st.session_state.cart = nuevo
                 st.markdown(f"### Total: {money(total)}")
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("Vaciar", use_container_width=True):
+                x,y = st.columns(2)
+                with x:
+                    if st.button("Vaciar carrito", use_container_width=True):
                         st.session_state.cart = []
                         st.rerun()
-                with c2:
+                with y:
                     if st.button("Continuar al pago", type="primary", use_container_width=True, disabled=total<=0):
                         st.session_state.pos_step = "pago"
                         st.rerun()
 
     else:
-        st.subheader("💳 Pago de la venta")
+        st.subheader("💳 Pago")
         if not st.session_state.cart:
             st.warning("El carrito está vacío.")
             if st.button("Volver a productos"):
@@ -1019,28 +1063,29 @@ def page_ventas():
                 st.rerun()
             return
         total = sum(float(i.get("cantidad", 0)) * float(i.get("precio", 0)) for i in st.session_state.cart)
-        left, right = st.columns([1.1, .9])
+        left, right = st.columns([1.05,.95])
         with left:
-            st.markdown("<div class='pay-box'>", unsafe_allow_html=True)
             clientes = query_df("SELECT id_cliente, nombre_cliente, telefono FROM clientes WHERE COALESCE(estado,'Activo')='Activo' ORDER BY nombre_cliente")
             opciones_cliente = {"Cliente general": None}
             if not clientes.empty:
                 opciones_cliente.update({f"{r['nombre_cliente']}" + (f" · {r['telefono']}" if str(r.get('telefono') or '').strip() else ""): int(r["id_cliente"]) for _, r in clientes.iterrows()})
-            cliente_nombre = st.selectbox("Cliente", list(opciones_cliente.keys()), key="pay_cliente")
+            st.markdown("<div class='pay-box'>", unsafe_allow_html=True)
             tipo_venta = st.selectbox("Tipo de venta", ["Contado", "Crédito"], key="tipo_venta")
-            metodos = ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Mixto"]
-            metodo_pago = st.selectbox("Medio de pago", metodos, key="pay_metodo")
+            cliente_nombre = st.selectbox("Cliente", list(opciones_cliente.keys()), key="pay_cliente")
+            metodo_pago = st.selectbox("Medio de pago", ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Mixto"], key="pay_metodo")
             if tipo_venta == "Contado":
                 monto_pagado = st.number_input("Monto recibido", min_value=0.0, value=float(total), step=1.0, key="monto_contado")
                 fecha_venc = None
                 saldo = max(total - monto_pagado, 0)
                 vuelto = max(monto_pagado - total, 0)
-                kpi("Vuelto", money(vuelto), "Entrega al cliente")
+                st.markdown(f"<span class='chip chip-ok'>Vuelto {money(vuelto)}</span>", unsafe_allow_html=True)
             else:
-                monto_pagado = st.number_input("Pago inicial", min_value=0.0, max_value=float(total), value=0.0, step=1.0, key="monto_credito")
+                if opciones_cliente[cliente_nombre] is None:
+                    st.warning("Para crédito selecciona un cliente registrado. No uses Cliente general.")
+                monto_pagado = st.number_input("Pago inicial / abono", min_value=0.0, max_value=float(total), value=0.0, step=1.0, key="monto_credito")
                 fecha_venc = st.date_input("Fecha de vencimiento", date.today() + timedelta(days=15), key="fecha_venc_credito")
                 saldo = max(total - monto_pagado, 0)
-                kpi("Saldo a crédito", money(saldo), "Se verá en Créditos")
+                st.markdown(f"<span class='chip chip-red'>Saldo pendiente {money(saldo)}</span>", unsafe_allow_html=True)
             observacion = st.text_area("Observación", placeholder="Pedido, entrega, nota interna...", key="obs_pago")
             a,b = st.columns(2)
             with a:
@@ -1052,25 +1097,22 @@ def page_ventas():
             st.markdown("</div>", unsafe_allow_html=True)
         with right:
             st.markdown("<div class='pay-box'>", unsafe_allow_html=True)
-            st.markdown("### Resumen")
+            st.markdown("### Resumen de cobro")
             for item in st.session_state.cart:
                 st.write(f"{num(item['cantidad'])} x {item['nombre']} — {money(float(item['cantidad'])*float(item['precio']))}")
             st.divider()
-            kpi("Total a cobrar", money(total))
+            kpi("Total", money(total))
             kpi("Pagado", money(monto_pagado))
             kpi("Saldo", money(saldo))
             st.markdown("</div>", unsafe_allow_html=True)
 
         if confirmar:
             if total <= 0:
-                st.error("El total debe ser mayor a cero.")
-                return
+                st.error("El total debe ser mayor a cero."); return
             if tipo_venta == "Contado" and monto_pagado < total:
-                st.error("En contado, el monto recibido debe cubrir el total. Si quedará deuda, cambia a Crédito.")
-                return
+                st.error("En contado, el monto recibido debe cubrir el total. Si quedará deuda, cambia a Crédito."); return
             if tipo_venta == "Crédito" and opciones_cliente[cliente_nombre] is None:
-                st.error("Para vender a crédito debes seleccionar un cliente registrado. No uses Cliente general.")
-                return
+                st.error("Para vender a crédito debes seleccionar un cliente registrado."); return
             u = current_user()
             comprobante = f"V{datetime.now().strftime('%Y%m%d%H%M%S')}"
             estado_pago = "Pagada" if saldo <= 0 else ("Parcial" if monto_pagado > 0 else "Pendiente")
@@ -1435,7 +1477,7 @@ def page_creditos():
     with c2: kpi("Ventas pendientes", str(len(pendientes)), "Créditos abiertos")
     with c3: kpi("Vencidas", str(vencidas), "Requieren seguimiento")
 
-    tab1, tab2, tab3 = st.tabs(["Pendientes", "Registrar pago", "Historial de pagos"])
+    tab1, tab2, tab3 = st.tabs(["Pendientes por cobrar", "💵 Registrar abono/pago", "Historial de pagos"])
     with tab1:
         if pendientes.empty:
             st.success("No hay cuentas por cobrar pendientes.")
@@ -1445,6 +1487,7 @@ def page_creditos():
             df["pagado_fmt"] = df["monto_pagado"].apply(money)
             df["saldo_fmt"] = df["saldo_pendiente"].apply(money)
             html_table(df, ["comprobante","fecha","fecha_vencimiento","cliente","telefono","total_fmt","pagado_fmt","saldo_fmt","estado_pago"], ["Comprobante","Fecha","Vence","Cliente","Teléfono","Total","Pagado","Saldo","Estado"], 300)
+            st.info("Para registrar un abono, entra en la pestaña 💵 Registrar abono/pago, selecciona el comprobante y guarda el monto recibido.")
     with tab2:
         if pendientes.empty:
             st.info("No hay ventas pendientes para registrar pagos.")
@@ -1460,7 +1503,7 @@ def page_creditos():
                 monto = st.number_input("Monto a pagar", min_value=0.0, max_value=saldo_actual, value=saldo_actual, step=1.0)
                 metodo = st.selectbox("Método de pago", ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Mixto"])
                 obs = st.text_area("Observación", placeholder="Ej: Pago parcial, abono, cancelación...")
-                if st.form_submit_button("Registrar pago", type="primary", use_container_width=True):
+                if st.form_submit_button("💵 Registrar abono / pago", type="primary", use_container_width=True):
                     if monto <= 0:
                         st.error("El monto debe ser mayor a cero.")
                     else:
