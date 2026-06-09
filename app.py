@@ -584,59 +584,59 @@ def inject_css():
     }}
     @media (max-width: 900px) {{ .clomar-hero h1 {{font-size:28px;}} .product-img-wrap {{height:145px;}} .block-container {{padding-left:.75rem; padding-right:.75rem;}} }}
 
+
     /* ===== V25.4: contraste fuerte, ticket imprimible y rendimiento visual ===== */
-    .clomar-hero { margin-top:0 !important; padding:16px 24px !important; min-height:0 !important; }
-    .clomar-hero h1, .clomar-hero p { text-shadow:none !important; filter:none !important; }
-    .stApp, .stApp * { text-rendering:optimizeLegibility; }
+    .clomar-hero {{ margin-top:0 !important; padding:16px 24px !important; min-height:0 !important; }}
+    .clomar-hero h1, .clomar-hero p {{ text-shadow:none !important; filter:none !important; }}
+    .stApp, .stApp * {{ text-rendering:optimizeLegibility; }}
     div[data-testid="stMarkdownContainer"] p, div[data-testid="stMarkdownContainer"] li,
-    div[data-testid="stMarkdownContainer"] span { color:#111827; }
+    div[data-testid="stMarkdownContainer"] span {{ color:#111827; }}
     .clomar-hero div[data-testid="stMarkdownContainer"] p,
-    .clomar-hero div[data-testid="stMarkdownContainer"] span { color:#fff !important; }
-    button, button * { opacity:1 !important; }
-    .stButton > button:disabled, .stDownloadButton > button:disabled { color:#64748b !important; background:#f1f5f9 !important; border-color:#e2e8f0 !important; opacity:1 !important; }
-    div[data-testid="stTabs"] button, div[data-testid="stTabs"] button * { color:#111827 !important; opacity:1 !important; font-weight:900 !important; }
-    div[data-testid="stTabs"] button[aria-selected="true"], div[data-testid="stTabs"] button[aria-selected="true"] * { color:#ef4444 !important; }
-    .pos-shell { display:grid; grid-template-columns:1.05fr .95fr; gap:18px; align-items:start; }
-    .pos-panel { background:#fff; border:1px solid #e5e7eb; border-radius:18px; padding:18px; box-shadow:0 8px 24px rgba(15,23,42,.05); }
-    .pos-panel h2, .pos-panel h3 { color:#0f172a !important; margin-top:0; }
-    .pos-total-banner { background:#0f172a; color:#fff !important; border-radius:18px; padding:18px 20px; display:flex; align-items:center; justify-content:space-between; margin:10px 0 16px; }
-    .pos-total-banner * { color:#fff !important; }
-    .cart-item-pro { background:#f8fafc; border:1px solid #e2e8f0; border-radius:14px; padding:12px; margin-bottom:10px; }
-    .cart-item-pro strong { color:#0f172a !important; }
-    .cart-item-pro .meta { color:#64748b !important; font-size:12px; }
-    .credit-action { background:#fff; border:1px solid #e5e7eb; border-radius:20px; padding:20px; box-shadow:0 10px 28px rgba(15,23,42,.06); margin:12px 0 18px; }
-    .ticket-pro { max-width:760px; margin:0 auto 18px; background:#fff; color:#111827; border-radius:24px; overflow:hidden; box-shadow:0 12px 32px rgba(15,23,42,.12); border:1px solid #e5e7eb; }
-    .ticket-pro * { color:#111827; box-sizing:border-box; }
-    .ticket-top { background:#111827; color:#fff !important; text-align:center; padding:24px 26px 22px; }
-    .ticket-top * { color:#fff !important; }
-    .ticket-icon { width:64px; height:64px; object-fit:contain; border-radius:16px; background:#f8fafc; padding:8px; margin-bottom:12px; }
-    .ticket-store { font-size:30px; font-weight:950; letter-spacing:.04em; margin:0; }
-    .ticket-kind { margin:6px 0 0; font-size:14px; opacity:.95; }
-    .ticket-body { padding:24px 28px 26px; }
-    .ticket-logo-wide { max-width:165px; max-height:68px; object-fit:contain; margin-bottom:8px; }
-    .ticket-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:16px 0; }
-    .ticket-box-mini { background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px; padding:14px; }
-    .ticket-label { color:#64748b !important; font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; }
-    .ticket-value { color:#0f172a !important; font-size:18px; font-weight:950; margin-top:4px; }
-    .ticket-section-title { color:#64748b !important; font-weight:950; font-size:14px; text-transform:uppercase; border-bottom:1px solid #e5e7eb; padding-bottom:8px; margin:16px 0 8px; }
-    .ticket-info-row { display:flex; justify-content:space-between; gap:15px; padding:5px 0; font-size:14px; }
-    .ticket-info-row b { font-weight:950; }
-    .ticket-products { width:100%; border-collapse:collapse; margin-top:10px; }
-    .ticket-products th { background:#f8fafc; color:#475569 !important; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.05em; padding:10px; }
-    .ticket-products td { border-top:1px solid #e5e7eb; padding:11px 10px; font-size:14px; vertical-align:top; }
-    .ticket-total-pro { margin-top:18px; background:#111827; border-radius:18px; padding:18px; display:flex; justify-content:space-between; align-items:center; }
-    .ticket-total-pro * { color:#fff !important; font-weight:950; font-size:28px; }
-    .ticket-payment-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; }
-    .ticket-footer { text-align:center; margin-top:18px; color:#64748b !important; font-size:13px; }
-    @media (max-width: 900px) { .pos-shell { grid-template-columns:1fr; } .ticket-grid,.ticket-payment-grid { grid-template-columns:1fr; } .ticket-store {font-size:24px;} }
-    @media print {
-        body * { visibility:hidden !important; }
-        #ticket-print-area, #ticket-print-area * { visibility:visible !important; }
-        #ticket-print-area { position:absolute !important; left:0 !important; top:0 !important; width:100% !important; max-width:100% !important; margin:0 !important; box-shadow:none !important; border:0 !important; border-radius:0 !important; }
-        .ticket-pro { box-shadow:none !important; border:0 !important; border-radius:0 !important; }
-        .ticket-body { padding:14mm !important; }
-        .ticket-top { padding:12mm 10mm !important; }
-    }
+    .clomar-hero div[data-testid="stMarkdownContainer"] span {{ color:#fff !important; }}
+    button, button * {{ opacity:1 !important; }}
+    .stButton > button:disabled, .stDownloadButton > button:disabled {{ color:#64748b !important; background:#f1f5f9 !important; border-color:#e2e8f0 !important; opacity:1 !important; }}
+    div[data-testid="stTabs"] button, div[data-testid="stTabs"] button * {{ color:#111827 !important; opacity:1 !important; font-weight:900 !important; }}
+    div[data-testid="stTabs"] button[aria-selected="true"], div[data-testid="stTabs"] button[aria-selected="true"] * {{ color:#ef4444 !important; }}
+    .pos-panel {{ background:#fff; border:1px solid #e5e7eb; border-radius:18px; padding:18px; box-shadow:0 8px 24px rgba(15,23,42,.05); }}
+    .pos-panel h2, .pos-panel h3 {{ color:#0f172a !important; margin-top:0; }}
+    .pos-total-banner {{ background:#0f172a; color:#fff !important; border-radius:18px; padding:18px 20px; display:flex; align-items:center; justify-content:space-between; margin:10px 0 16px; }}
+    .pos-total-banner * {{ color:#fff !important; }}
+    .cart-item-pro {{ background:#f8fafc; border:1px solid #e2e8f0; border-radius:14px; padding:12px; margin-bottom:10px; }}
+    .cart-item-pro strong {{ color:#0f172a !important; }}
+    .cart-item-pro .meta {{ color:#64748b !important; font-size:12px; }}
+    .credit-action {{ background:#fff; border:1px solid #e5e7eb; border-radius:20px; padding:20px; box-shadow:0 10px 28px rgba(15,23,42,.06); margin:12px 0 18px; }}
+    .ticket-pro {{ max-width:760px; margin:0 auto 18px; background:#fff; color:#111827; border-radius:24px; overflow:hidden; box-shadow:0 12px 32px rgba(15,23,42,.12); border:1px solid #e5e7eb; }}
+    .ticket-pro * {{ color:#111827; box-sizing:border-box; }}
+    .ticket-top {{ background:#111827; color:#fff !important; text-align:center; padding:24px 26px 22px; }}
+    .ticket-top * {{ color:#fff !important; }}
+    .ticket-icon {{ width:64px; height:64px; object-fit:contain; border-radius:16px; background:#f8fafc; padding:8px; margin-bottom:12px; }}
+    .ticket-store {{ font-size:30px; font-weight:950; letter-spacing:.04em; margin:0; }}
+    .ticket-kind {{ margin:6px 0 0; font-size:14px; opacity:.95; }}
+    .ticket-body {{ padding:24px 28px 26px; }}
+    .ticket-logo-wide {{ max-width:165px; max-height:68px; object-fit:contain; margin-bottom:8px; }}
+    .ticket-grid {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:16px 0; }}
+    .ticket-box-mini {{ background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px; padding:14px; }}
+    .ticket-label {{ color:#64748b !important; font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; }}
+    .ticket-value {{ color:#0f172a !important; font-size:18px; font-weight:950; margin-top:4px; }}
+    .ticket-section-title {{ color:#64748b !important; font-weight:950; font-size:14px; text-transform:uppercase; border-bottom:1px solid #e5e7eb; padding-bottom:8px; margin:16px 0 8px; }}
+    .ticket-info-row {{ display:flex; justify-content:space-between; gap:15px; padding:5px 0; font-size:14px; }}
+    .ticket-info-row b {{ font-weight:950; }}
+    .ticket-products {{ width:100%; border-collapse:collapse; margin-top:10px; }}
+    .ticket-products th {{ background:#f8fafc; color:#475569 !important; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.05em; padding:10px; }}
+    .ticket-products td {{ border-top:1px solid #e5e7eb; padding:11px 10px; font-size:14px; vertical-align:top; }}
+    .ticket-total-pro {{ margin-top:18px; background:#111827; border-radius:18px; padding:18px; display:flex; justify-content:space-between; align-items:center; }}
+    .ticket-total-pro * {{ color:#fff !important; font-weight:950; font-size:28px; }}
+    .ticket-payment-grid {{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; }}
+    .ticket-footer {{ text-align:center; margin-top:18px; color:#64748b !important; font-size:13px; }}
+    @media (max-width: 900px) {{ .ticket-grid,.ticket-payment-grid {{ grid-template-columns:1fr; }} .ticket-store {{font-size:24px;}} }}
+    @media print {{
+        body * {{ visibility:hidden !important; }}
+        #ticket-print-area, #ticket-print-area * {{ visibility:visible !important; }}
+        #ticket-print-area {{ position:absolute !important; left:0 !important; top:0 !important; width:100% !important; max-width:100% !important; margin:0 !important; box-shadow:none !important; border:0 !important; border-radius:0 !important; }}
+        .ticket-pro {{ box-shadow:none !important; border:0 !important; border-radius:0 !important; }}
+        .ticket-body {{ padding:14mm !important; }}
+        .ticket-top {{ padding:12mm 10mm !important; }}
+    }}
 
     </style>
     """, unsafe_allow_html=True)
@@ -872,7 +872,10 @@ def generate_receipt_pdf(id_venta: int):
     if colors is None:
         return None
     venta = query_df("""
-        SELECT v.*, COALESCE(c.nombre_cliente,'Cliente general') AS cliente, COALESCE(c.telefono,'') AS cliente_telefono
+        SELECT v.*, COALESCE(c.nombre_cliente,'Cliente general') AS cliente,
+               COALESCE(c.telefono,'') AS cliente_telefono,
+               COALESCE(c.documento,'') AS cliente_documento,
+               COALESCE(c.direccion,'') AS cliente_direccion
         FROM ventas v LEFT JOIN clientes c ON c.id_cliente=v.id_cliente
         WHERE v.id_venta=:id
     """, {"id": id_venta})
@@ -884,45 +887,91 @@ def generate_receipt_pdf(id_venta: int):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1.2*cm, leftMargin=1.2*cm, topMargin=1.1*cm, bottomMargin=1.1*cm)
     styles = getSampleStyleSheet()
-    title = ParagraphStyle('TitlePro', parent=styles['Title'], fontSize=20, leading=24, textColor=colors.HexColor('#0f172a'), alignment=1)
+    title_white = ParagraphStyle('TitleWhite', parent=styles['Title'], fontSize=22, leading=26, textColor=colors.white, alignment=1, fontName='Helvetica-Bold')
+    subtitle_white = ParagraphStyle('SubWhite', parent=styles['Normal'], fontSize=10, leading=13, textColor=colors.white, alignment=1)
     normal = ParagraphStyle('NormalPro', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#111827'))
     small = ParagraphStyle('SmallPro', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#64748b'))
+    label = ParagraphStyle('Label', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#64748b'), fontName='Helvetica-Bold')
     story = []
-    story.append(Paragraph(str(cfg.get('store_name') or APP_NAME_DEFAULT), title))
-    if cfg.get('direccion'):
-        story.append(Paragraph(str(cfg.get('direccion')), small))
-    if cfg.get('telefono'):
-        story.append(Paragraph(f"Tel./WhatsApp: {cfg.get('telefono')}", small))
-    story.append(Spacer(1, 0.25*cm))
-    meta = [
-        [Paragraph(f"<b>Comprobante:</b> {v['comprobante']}", normal), Paragraph(f"<b>Fecha:</b> {fmt_dt(v['fecha'])}", normal)],
-        [Paragraph(f"<b>Cliente:</b> {v['cliente']}", normal), Paragraph(f"<b>Vendedor:</b> {v['vendedor_nombre']}", normal)],
-        [Paragraph(f"<b>Pago:</b> {v.get('metodo_pago','')}", normal), Paragraph(f"<b>Estado:</b> {v.get('estado_pago','')}", normal)],
+
+    # Encabezado oscuro tipo tienda
+    header_data = []
+    icon_cell = Paragraph('🛍️', title_white)
+    logo_url = str(cfg.get('icon_url') or cfg.get('logo_url') or '').strip()
+    if requests and logo_url:
+        try:
+            resp = requests.get(logo_url, timeout=2)
+            if resp.ok and len(resp.content) < 1_200_000:
+                icon_cell = RLImage(io.BytesIO(resp.content), width=1.8*cm, height=1.8*cm)
+        except Exception:
+            pass
+    header_data.append([icon_cell])
+    header_data.append([Paragraph(str(cfg.get('store_name') or APP_NAME_DEFAULT).upper(), title_white)])
+    header_data.append([Paragraph('Tienda multirrubro · Comprobante de venta', subtitle_white)])
+    header_tbl = Table(header_data, colWidths=[16.8*cm])
+    header_tbl.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,-1), colors.HexColor('#111827')),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ('TOPPADDING',(0,0),(-1,-1),8),
+        ('BOTTOMPADDING',(0,0),(-1,-1),6),
+    ]))
+    story.append(header_tbl)
+    story.append(Spacer(1, .35*cm))
+
+    # Datos principales en cajas
+    box_data = [
+        [Paragraph('<b>VENTA N.°</b><br/>'+str(v['comprobante']), normal), Paragraph('<b>FECHA / HORA</b><br/>'+fmt_dt(v['fecha']), normal)],
+        [Paragraph('<b>CLIENTE</b><br/>'+str(v['cliente']), normal), Paragraph('<b>VENDEDOR</b><br/>'+str(v.get('vendedor_nombre') or '-'), normal)],
+        [Paragraph('<b>MÉTODO DE PAGO</b><br/>'+str(v.get('metodo_pago') or '-'), normal), Paragraph('<b>ESTADO</b><br/>'+str(v.get('estado_pago') or '-'), normal)],
     ]
-    mt = Table(meta, colWidths=[8.2*cm, 8.2*cm])
-    mt.setStyle(TableStyle([('BOX',(0,0),(-1,-1),0.6,colors.HexColor('#e5e7eb')), ('INNERGRID',(0,0),(-1,-1),0.4,colors.HexColor('#e5e7eb')), ('BACKGROUND',(0,0),(-1,-1),colors.HexColor('#f8fafc')), ('PADDING',(0,0),(-1,-1),7)]))
-    story.append(mt)
-    story.append(Spacer(1, 0.28*cm))
-    data = [["Producto", "Cant.", "Precio", "Subtotal"]]
+    bt = Table(box_data, colWidths=[8.2*cm, 8.2*cm])
+    bt.setStyle(TableStyle([
+        ('BOX',(0,0),(-1,-1),0.8,colors.HexColor('#e5e7eb')),
+        ('INNERGRID',(0,0),(-1,-1),0.4,colors.HexColor('#e5e7eb')),
+        ('BACKGROUND',(0,0),(-1,-1),colors.HexColor('#f8fafc')),
+        ('PADDING',(0,0),(-1,-1),9),
+        ('VALIGN',(0,0),(-1,-1),'TOP'),
+    ]))
+    story.append(bt)
+    story.append(Spacer(1, .35*cm))
+
+    story.append(Paragraph('DETALLE DE PRODUCTOS', label))
+    data = [["Cant.", "Producto", "Precio", "Subtotal"]]
     for _, r in det.iterrows():
-        data.append([Paragraph(str(r['producto_nombre'])[:60], normal), num(r['cantidad']), money(r['precio_unitario']), money(r['subtotal'])])
-    tbl = Table(data, colWidths=[8.2*cm, 2.0*cm, 3.0*cm, 3.2*cm])
+        data.append([num(r['cantidad']), Paragraph(str(r['producto_nombre'])[:80], normal), money(r['precio_unitario']), money(r['subtotal'])])
+    tbl = Table(data, colWidths=[1.6*cm, 8.7*cm, 3.0*cm, 3.1*cm])
     tbl.setStyle(TableStyle([
-        ('BACKGROUND',(0,0),(-1,0),colors.HexColor('#f1f5f9')), ('TEXTCOLOR',(0,0),(-1,0),colors.HexColor('#334155')),
-        ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'), ('ALIGN',(1,1),(-1,-1),'RIGHT'), ('ALIGN',(1,0),(-1,0),'CENTER'),
-        ('GRID',(0,0),(-1,-1),0.4,colors.HexColor('#e5e7eb')), ('PADDING',(0,0),(-1,-1),7),
+        ('BACKGROUND',(0,0),(-1,0),colors.HexColor('#f1f5f9')),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.HexColor('#334155')),
+        ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+        ('ALIGN',(0,1),(0,-1),'CENTER'),
+        ('ALIGN',(2,1),(-1,-1),'RIGHT'),
+        ('GRID',(0,0),(-1,-1),0.4,colors.HexColor('#e5e7eb')),
+        ('PADDING',(0,0),(-1,-1),8),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE')
     ]))
     story.append(tbl)
-    story.append(Spacer(1, 0.22*cm))
-    total_tbl = Table([
-        ["TOTAL", money(v['total_venta'])],
-        ["PAGADO", money(v.get('monto_pagado',0))],
-        ["SALDO", money(v.get('saldo_pendiente',0))],
-    ], colWidths=[12.2*cm, 4.2*cm])
-    total_tbl.setStyle(TableStyle([('ALIGN',(1,0),(1,-1),'RIGHT'), ('FONTNAME',(0,0),(-1,-1),'Helvetica-Bold'), ('FONTSIZE',(0,0),(-1,-1),12), ('LINEABOVE',(0,0),(-1,0),1,colors.HexColor('#0f172a')), ('PADDING',(0,0),(-1,-1),8)]))
+    story.append(Spacer(1, .35*cm))
+
+    total_data = [[Paragraph('<b>TOTAL</b>', title_white), Paragraph('<b>'+money(v['total_venta'])+'</b>', title_white)]]
+    total_tbl = Table(total_data, colWidths=[8.2*cm, 8.2*cm])
+    total_tbl.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,-1),colors.HexColor('#111827')),
+        ('TEXTCOLOR',(0,0),(-1,-1),colors.white),
+        ('ALIGN',(1,0),(1,0),'RIGHT'),
+        ('PADDING',(0,0),(-1,-1),12),
+    ]))
     story.append(total_tbl)
-    story.append(Spacer(1, .3*cm))
+    story.append(Spacer(1, .25*cm))
+    pay_tbl = Table([
+        [Paragraph('<b>Pagado:</b> '+money(v.get('monto_pagado',0)), normal), Paragraph('<b>Saldo:</b> '+money(v.get('saldo_pendiente',0)), normal)]
+    ], colWidths=[8.2*cm, 8.2*cm])
+    pay_tbl.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,-1),colors.HexColor('#f8fafc')),('BOX',(0,0),(-1,-1),0.4,colors.HexColor('#e5e7eb')),('PADDING',(0,0),(-1,-1),8)]))
+    story.append(pay_tbl)
+    story.append(Spacer(1, .35*cm))
+    if cfg.get('direccion') or cfg.get('telefono'):
+        story.append(Paragraph(f"{cfg.get('direccion','')} · WhatsApp: {cfg.get('telefono','')}", small))
     story.append(Paragraph(str(cfg.get('mensaje_comprobante','Gracias por su compra.')), small))
     doc.build(story)
     buffer.seek(0)
