@@ -12,7 +12,7 @@ import streamlit as st
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-APP_VERSION = "V24.2 Cloud Optimizada"
+APP_VERSION = "V24.5 Estable Cloud"
 APP_NAME = "Clomar Store"
 
 # ============================================================
@@ -444,10 +444,26 @@ div[data-baseweb="select"] > div {
   background:#ffffff !important; color:#111827 !important; border:1px solid #d0d5dd !important; border-radius:14px !important;
 }
 [data-testid="stTextInput"] input::placeholder, textarea::placeholder { color:#98a2b3 !important; opacity:1 !important; }
-[data-testid="stButton"] button { border-radius:14px !important; font-weight:800 !important; }
-[data-testid="stButton"] button[kind="primary"], button[data-testid="baseButton-primary"] {
-  background:#111827 !important; color:#ffffff !important; border:1px solid #111827 !important;
+[data-testid="stButton"] button,
+[data-testid="stFormSubmitButton"] button,
+[data-testid="stDownloadButton"] button {
+  border-radius:14px !important;
+  font-weight:800 !important;
+  background:#111827 !important;
+  color:#ffffff !important;
+  border:1px solid #111827 !important;
 }
+[data-testid="stButton"] button *,
+[data-testid="stFormSubmitButton"] button *,
+[data-testid="stDownloadButton"] button * { color:#ffffff !important; }
+[data-testid="stButton"] button:disabled,
+[data-testid="stFormSubmitButton"] button:disabled {
+  background:#e5e7eb !important;
+  color:#98a2b3 !important;
+  border-color:#e5e7eb !important;
+}
+[data-testid="stButton"] button:disabled *,
+[data-testid="stFormSubmitButton"] button:disabled * { color:#98a2b3 !important; }
 [data-testid="stSidebar"] button, [data-testid="stSidebar"] button * { color:#ffffff !important; }
 [data-testid="stSidebar"] [role="radiogroup"] label, [data-testid="stSidebar"] [role="radiogroup"] label * { color:#111827 !important; }
 .small-muted{color:#667085;font-size:13px}
@@ -600,7 +616,7 @@ def login_screen():
                 st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos.")
-        st.caption("Credenciales iniciales: admin/admin123 y vendedor/venta123. Cámbialas antes de uso real.")
+        st.caption("Acceso privado. Solicita tus credenciales al administrador del negocio.")
         st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -1110,30 +1126,130 @@ def page_reportes():
         html_table(detalle, ["vendedor","producto","cantidad","total","utilidad_fmt"], ["Vendedor","Producto","Cantidad","Total","Utilidad"], 100)
 
 
+def actualizar_usuario(usuario_original: str, nuevo_nombre: str, nuevo_rol: str, nuevo_estado: str, nueva_clave: str | None = None):
+    """Actualiza datos de un usuario. Si nueva_clave viene vacía, conserva la contraseña actual."""
+    params = {
+        "usuario": usuario_original,
+        "nombre": nuevo_nombre,
+        "rol": nuevo_rol,
+        "estado": nuevo_estado,
+    }
+    if nueva_clave:
+        params["password_hash"] = hash_password(nueva_clave)
+        exec_sql(
+            """UPDATE usuarios
+               SET nombre=:nombre, rol=:rol, estado=:estado, password_hash=:password_hash
+               WHERE usuario=:usuario""",
+            params,
+        )
+    else:
+        exec_sql(
+            """UPDATE usuarios
+               SET nombre=:nombre, rol=:rol, estado=:estado
+               WHERE usuario=:usuario""",
+            params,
+        )
+
+
 def page_usuarios():
     st.markdown("<div class='clomar-hero'><h1>🔐 Usuarios</h1><p>Control de accesos: dueño, administrador y vendedor.</p></div>", unsafe_allow_html=True)
     if not is_admin():
         st.warning("Solo administrador puede gestionar usuarios.")
         return
-    users=query_df("SELECT id_usuario, usuario, nombre, rol, estado, creado_en FROM usuarios ORDER BY id_usuario")
-    html_table(users, ["usuario","nombre","rol","estado","creado_en"], ["Usuario","Nombre","Rol","Estado","Creado"], 100)
-    with st.expander("Crear usuario"):
+
+    st.info("Desde aquí puedes crear usuarios, cambiar contraseñas, modificar roles y activar/inactivar accesos.")
+    users = query_df("SELECT id_usuario, usuario, nombre, rol, estado, creado_en FROM usuarios ORDER BY id_usuario")
+
+    tab1, tab2, tab3 = st.tabs(["👥 Lista", "✏️ Editar / contraseña", "➕ Crear usuario"])
+
+    with tab1:
+        if users.empty:
+            st.warning("No hay usuarios registrados.")
+        else:
+            html_table(
+                users,
+                ["usuario", "nombre", "rol", "estado", "creado_en"],
+                ["Usuario", "Nombre", "Rol", "Estado", "Creado"],
+                100,
+            )
+            st.caption("Por seguridad, las contraseñas no se muestran. Solo pueden reemplazarse por una nueva.")
+
+    with tab2:
+        if users.empty:
+            st.warning("Primero crea un usuario.")
+        else:
+            opciones = [f"{r['usuario']} · {r['nombre']} · {r['rol']}" for _, r in users.iterrows()]
+            seleccionado = st.selectbox("Selecciona usuario", opciones)
+            idx = opciones.index(seleccionado)
+            row = users.iloc[idx]
+            usuario_original = str(row["usuario"])
+
+            with st.form("form_edit_user"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.text_input("Usuario", value=usuario_original, disabled=True)
+                    nuevo_nombre = st.text_input("Nombre visible", value=str(row["nombre"] or usuario_original))
+                    nuevo_estado = st.selectbox(
+                        "Estado",
+                        ["Activo", "Inactivo"],
+                        index=0 if str(row["estado"]) == "Activo" else 1,
+                    )
+                with c2:
+                    roles = ["Vendedor", "Administrador", "Supervisor"]
+                    rol_actual = str(row["rol"] or "Vendedor")
+                    nuevo_rol = st.selectbox("Rol", roles, index=roles.index(rol_actual) if rol_actual in roles else 0)
+                    nueva_clave = st.text_input("Nueva contraseña", type="password", placeholder="Dejar vacío para conservar la actual")
+                    confirmar_clave = st.text_input("Confirmar nueva contraseña", type="password", placeholder="Repetir nueva contraseña")
+
+                guardar = st.form_submit_button("Guardar cambios", type="primary", use_container_width=True)
+                if guardar:
+                    if not nuevo_nombre.strip():
+                        st.error("El nombre visible es obligatorio.")
+                    elif nueva_clave and nueva_clave != confirmar_clave:
+                        st.error("Las contraseñas no coinciden.")
+                    elif nueva_clave and len(nueva_clave) < 6:
+                        st.error("La contraseña debe tener como mínimo 6 caracteres.")
+                    else:
+                        actualizar_usuario(
+                            usuario_original=usuario_original,
+                            nuevo_nombre=nuevo_nombre.strip(),
+                            nuevo_rol=nuevo_rol,
+                            nuevo_estado=nuevo_estado,
+                            nueva_clave=nueva_clave.strip() if nueva_clave else None,
+                        )
+                        st.success("Usuario actualizado correctamente.")
+                        if current_user() and current_user().get("usuario") == usuario_original:
+                            st.session_state.user["nombre"] = nuevo_nombre.strip()
+                            st.session_state.user["rol"] = nuevo_rol
+                        st.rerun()
+
+            st.warning("Recomendación: cambia las claves iniciales y deja inactivo cualquier usuario que no uses.")
+
+    with tab3:
         with st.form("form_user"):
-            usuario=st.text_input("Usuario")
-            nombre=st.text_input("Nombre")
-            clave=st.text_input("Contraseña", type="password")
-            rol=st.selectbox("Rol", ["Vendedor", "Administrador", "Supervisor"])
-            if st.form_submit_button("Crear usuario", type="primary"):
-                if not usuario or not clave:
+            c1, c2 = st.columns(2)
+            with c1:
+                usuario = st.text_input("Usuario nuevo", placeholder="ejemplo: cajero1")
+                nombre = st.text_input("Nombre", placeholder="Nombre del trabajador")
+                clave = st.text_input("Contraseña", type="password")
+            with c2:
+                rol = st.selectbox("Rol", ["Vendedor", "Administrador", "Supervisor"])
+                estado = st.selectbox("Estado", ["Activo", "Inactivo"])
+            if st.form_submit_button("Crear usuario", type="primary", use_container_width=True):
+                if not usuario.strip() or not clave:
                     st.error("Usuario y contraseña son obligatorios.")
+                elif len(clave) < 6:
+                    st.error("La contraseña debe tener como mínimo 6 caracteres.")
                 else:
                     try:
-                        exec_sql("INSERT INTO usuarios (usuario,password_hash,nombre,rol,estado) VALUES (:u,:p,:n,:r,'Activo')", {"u":usuario,"p":hash_password(clave),"n":nombre or usuario,"r":rol})
+                        exec_sql(
+                            "INSERT INTO usuarios (usuario,password_hash,nombre,rol,estado) VALUES (:u,:p,:n,:r,:e)",
+                            {"u": usuario.strip(), "p": hash_password(clave), "n": nombre.strip() or usuario.strip(), "r": rol, "e": estado},
+                        )
                         st.success("Usuario creado.")
                         st.rerun()
-                    except Exception as e:
+                    except Exception:
                         st.error("No se pudo crear. Quizás el usuario ya existe.")
-
 
 def page_backup():
     st.markdown("<div class='clomar-hero'><h1>💾 Backup / exportación</h1><p>Descarga datos de la nube en CSV para respaldo.</p></div>", unsafe_allow_html=True)
