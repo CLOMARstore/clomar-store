@@ -8,11 +8,12 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+px.defaults.template = "plotly_white"
 import streamlit as st
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-APP_VERSION = "V24.5 Estable Cloud"
+APP_VERSION = "V24.6 Visual Estable Cloud"
 APP_NAME = "Clomar Store"
 
 # ============================================================
@@ -483,6 +484,25 @@ h1,h2,h3 { letter-spacing:-.02em; color:#0f172a; }
 .no-print {}
 @media print { body * { visibility:hidden !important; } #printable-receipt, #printable-receipt * { visibility:visible !important; } #printable-receipt { position:absolute; left:0; top:0; width:100%; } .no-print { display:none !important; } }
 button[kind="primary"] {background:#111827!important;border-radius:14px!important;border:1px solid #111827!important;}
+/* V24.6: contraste y limpieza visual para nube */
+[data-testid="stButton"] button p,
+[data-testid="stFormSubmitButton"] button p,
+[data-testid="stDownloadButton"] button p { color:#ffffff !important; font-weight:800 !important; }
+[data-testid="stButton"] button:disabled,
+[data-testid="stButton"] button:disabled p,
+[data-testid="stFormSubmitButton"] button:disabled,
+[data-testid="stFormSubmitButton"] button:disabled p { background:#eef2f6 !important; color:#64748b !important; border-color:#d0d5dd !important; }
+[data-testid="stAlert"] { border-radius:16px !important; border:1px solid #d0d5dd !important; }
+[data-testid="stAlert"] *, [data-testid="stAlert"] p { color:#111827 !important; font-weight:700 !important; }
+.stTabs [data-baseweb="tab-list"] { gap:10px; }
+.stTabs [data-baseweb="tab"] { color:#475467 !important; font-weight:800 !important; padding:8px 12px !important; }
+.stTabs [data-baseweb="tab"] p { color:#475467 !important; font-weight:800 !important; }
+.stTabs [aria-selected="true"] p, .stTabs [aria-selected="true"] { color:#dc2626 !important; }
+[data-testid="stPlotlyChart"] { background:#ffffff !important; border:1px solid #e5e7eb !important; border-radius:22px !important; padding:12px !important; box-shadow:0 10px 28px rgba(15,23,42,.05); }
+.product-card + div [data-testid="stButton"] button { margin-top:8px !important; min-height:42px !important; }
+.product-card + div [data-testid="stButton"] button p { color:#ffffff !important; }
+.block-container { padding-left: 2.5rem; padding-right: 2.5rem; }
+@media (max-width: 900px) { .block-container { padding-left: 1rem; padding-right: 1rem; } .clomar-hero h1{font-size:26px;} }
 </style>
 """,
     unsafe_allow_html=True,
@@ -733,7 +753,18 @@ def page_panel_dueno():
     st.subheader("Productos vendidos")
     if not detalle.empty:
         fig = px.bar(detalle.head(10), x="producto", y="total_vendido", color="vendedor", title="Top productos por venta")
-        st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(
+            template="plotly_white",
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            font=dict(color="#111827", family="Inter, Segoe UI, Arial"),
+            title_font=dict(color="#111827", size=18),
+            margin=dict(l=20, r=20, t=50, b=40),
+            legend_title_text="Vendedor",
+        )
+        fig.update_xaxes(title_text="Producto", tickfont=dict(color="#111827"), title_font=dict(color="#111827"), gridcolor="#eef2f6")
+        fig.update_yaxes(title_text="Total vendido", tickfont=dict(color="#111827"), title_font=dict(color="#111827"), gridcolor="#eef2f6")
+        st.plotly_chart(fig, use_container_width=True, theme=None)
         dtab = detalle.copy()
         dtab["total"] = dtab["total_vendido"].apply(money)
         dtab["utilidad_fmt"] = dtab["utilidad"].apply(money)
@@ -785,7 +816,7 @@ def page_ventas():
                         <span class="chip {chip}">Stock {num(stock)}</span>
                     </div>
                     """, unsafe_allow_html=True)
-                    if st.button("Agregar", key=f"add_{r['id_producto']}", use_container_width=True, disabled=stock <= 0):
+                    if st.button("🛒 Agregar al carrito", key=f"add_{r['id_producto']}", use_container_width=True, disabled=stock <= 0):
                         item = {
                             "id_producto": int(r["id_producto"]), "nombre": r["nombre_producto"],
                             "cantidad": 1.0, "precio": float(r["precio_venta"] or 0),
@@ -887,77 +918,87 @@ def page_ventas():
 
 
 def page_productos():
-    st.markdown("<div class='clomar-hero'><h1>📦 Productos</h1><p>Catálogo visual, costos, precios y stock mínimo.</p></div>", unsafe_allow_html=True)
+    titulo = "Catálogo visual, precios y stock." if not is_admin() else "Catálogo visual, costos, precios y stock mínimo."
+    st.markdown(f"<div class='clomar-hero'><h1>📦 Productos</h1><p>{titulo}</p></div>", unsafe_allow_html=True)
     productos = productos_con_stock()
     categorias = query_df("SELECT * FROM categorias WHERE estado='Activo' ORDER BY nombre_categoria")
-    tab1, tab2 = st.tabs(["Catálogo", "Crear / editar"])
-    with tab1:
-        buscar = st.text_input("Buscar", key="buscar_productos")
-        fil = productos.copy()
-        if buscar.strip():
-            txt = buscar.lower()
-            fil = fil[fil["nombre_producto"].astype(str).str.lower().str.contains(txt, na=False) | fil["codigo"].astype(str).str.lower().str.contains(txt, na=False)]
-        if fil.empty:
-            st.info("No hay productos.")
-        else:
-            cols = st.columns(4)
-            for i, (_, r) in enumerate(fil.iterrows()):
-                with cols[i % 4]:
-                    stock = float(r["stock_actual"] or 0)
-                    chips = f"<span class='chip chip-ok'>Stock {num(stock)}</span>" if stock > float(r["stock_minimo"] or 0) else f"<span class='chip chip-red'>Stock {num(stock)}</span>"
-                    costo = f"<span class='chip chip-dark'>Costo {money(r['costo_unitario'])}</span>" if is_admin() else ""
-                    st.markdown(f"""
-                    <div class='product-card'>
-                      <div class='product-name'>📦 {r['nombre_producto']}</div>
-                      <div class='product-meta'>{r.get('codigo','')} · {r.get('categoria','')}</div>
-                      <div class='product-price'>{money(r['precio_venta'])}</div>
-                      {chips}{costo}
-                    </div>
-                    """, unsafe_allow_html=True)
-    with tab2:
-        if not is_admin():
-            st.warning("Solo administrador puede crear o editar productos.")
-            return
-        with st.form("form_producto"):
-            st.subheader("Nuevo producto")
-            a, b = st.columns(2)
-            with a:
-                codigo = st.text_input("Código", placeholder="SKU o código interno")
-                nombre = st.text_input("Nombre del producto")
-                marca = st.text_input("Marca")
-                unidad = st.selectbox("Unidad", ["Unidad", "Par", "Caja", "Docena", "Metro", "Kilo", "Litro", "Paquete"])
-            with b:
-                cat_opts = {r["nombre_categoria"]: int(r["id_categoria"]) for _, r in categorias.iterrows()} if not categorias.empty else {}
-                categoria = st.selectbox("Categoría", list(cat_opts.keys()) if cat_opts else ["Sin categoría"])
-                costo = st.number_input("Costo unitario", min_value=0.0, step=1.0)
-                precio = st.number_input("Precio de venta", min_value=0.0, step=1.0)
-                stock_min = st.number_input("Stock mínimo", min_value=0.0, step=1.0)
-                stock_ini = st.number_input("Stock inicial / ingreso inicial", min_value=0.0, step=1.0)
-            submitted = st.form_submit_button("Guardar producto", type="primary", use_container_width=True)
-            if submitted:
-                if not nombre.strip():
-                    st.error("Ingresa el nombre del producto.")
-                else:
-                    u = current_user()
-                    codigo_final = codigo.strip() or f"P{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                    try:
-                        with ENGINE.begin() as conn:
-                            conn.execute(text("""
-                                INSERT INTO productos (codigo, nombre_producto, id_categoria, marca, unidad, costo_unitario, precio_venta, stock_minimo, estado)
-                                VALUES (:codigo, :nombre, :cat, :marca, :unidad, :costo, :precio, :stock_min, 'Activo')
-                            """), {"codigo": codigo_final, "nombre": nombre.strip(), "cat": cat_opts.get(categoria), "marca": marca, "unidad": unidad, "costo": costo, "precio": precio, "stock_min": stock_min})
-                            idp = conn.execute(text("SELECT id_producto FROM productos WHERE codigo=:codigo"), {"codigo": codigo_final}).scalar()
-                            if stock_ini > 0:
-                                conn.execute(text("""
-                                    INSERT INTO movimientos_stock (id_producto, tipo, cantidad, costo_unitario, referencia, id_usuario, observacion)
-                                    VALUES (:idp, 'MIGRACION_INICIAL', :cant, :costo, 'Stock inicial', :uid, 'Alta de producto')
-                                """), {"idp": int(idp), "cant": stock_ini, "costo": costo, "uid": u["id_usuario"]})
-                        st.success("Producto creado correctamente.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error("No se pudo crear el producto. Revisa si el código ya existe.")
-                        st.exception(e)
 
+    def render_catalogo():
+        buscar = st.text_input("Buscar producto", key="buscar_productos", placeholder="Nombre, código o categoría...")
+        fil = productos.copy()
+        if buscar.strip() and not fil.empty:
+            txt = buscar.lower().strip()
+            fil = fil[
+                fil["nombre_producto"].astype(str).str.lower().str.contains(txt, na=False) |
+                fil["codigo"].astype(str).str.lower().str.contains(txt, na=False) |
+                fil["categoria"].astype(str).str.lower().str.contains(txt, na=False)
+            ]
+        if fil.empty:
+            st.info("No hay productos para mostrar.")
+            return
+        cols = st.columns(4 if is_admin() else 3)
+        for i, (_, r) in enumerate(fil.iterrows()):
+            with cols[i % len(cols)]:
+                stock = float(r["stock_actual"] or 0)
+                minimo = float(r["stock_minimo"] or 0)
+                chip_cls = "chip-ok" if stock > minimo else "chip-red"
+                costo = f"<span class='chip chip-dark'>Costo {money(r['costo_unitario'])}</span>" if is_admin() else ""
+                st.markdown(f"""
+                <div class='product-card'>
+                  <div class='product-name'>📦 {r['nombre_producto']}</div>
+                  <div class='product-meta'>{r.get('codigo','')} · {r.get('categoria','')}</div>
+                  <div class='product-price'>{money(r['precio_venta'])}</div>
+                  <span class='chip {chip_cls}'>Stock {num(stock)}</span>{costo}
+                </div>
+                """, unsafe_allow_html=True)
+
+    if is_admin():
+        tab1, tab2 = st.tabs(["Catálogo", "Crear producto"])
+        with tab1:
+            render_catalogo()
+        with tab2:
+            with st.form("form_producto"):
+                st.subheader("Nuevo producto")
+                a, b = st.columns(2)
+                with a:
+                    codigo = st.text_input("Código", placeholder="SKU o código interno")
+                    nombre = st.text_input("Nombre del producto")
+                    marca = st.text_input("Marca")
+                    unidad = st.selectbox("Unidad", ["Unidad", "Par", "Caja", "Docena", "Metro", "Kilo", "Litro", "Paquete"])
+                with b:
+                    cat_opts = {r["nombre_categoria"]: int(r["id_categoria"]) for _, r in categorias.iterrows()} if not categorias.empty else {}
+                    categoria = st.selectbox("Categoría", list(cat_opts.keys()) if cat_opts else ["Sin categoría"])
+                    costo = st.number_input("Costo unitario", min_value=0.0, step=1.0)
+                    precio = st.number_input("Precio de venta", min_value=0.0, step=1.0)
+                    stock_min = st.number_input("Stock mínimo", min_value=0.0, step=1.0)
+                    stock_ini = st.number_input("Stock inicial / ingreso inicial", min_value=0.0, step=1.0)
+                submitted = st.form_submit_button("Guardar producto", type="primary", use_container_width=True)
+                if submitted:
+                    if not nombre.strip():
+                        st.error("Ingresa el nombre del producto.")
+                    else:
+                        u = current_user()
+                        codigo_final = codigo.strip() or f"P{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                        try:
+                            with ENGINE.begin() as conn:
+                                conn.execute(text("""
+                                    INSERT INTO productos (codigo, nombre_producto, id_categoria, marca, unidad, costo_unitario, precio_venta, stock_minimo, estado)
+                                    VALUES (:codigo, :nombre, :cat, :marca, :unidad, :costo, :precio, :stock_min, 'Activo')
+                                """), {"codigo": codigo_final, "nombre": nombre.strip(), "cat": cat_opts.get(categoria), "marca": marca, "unidad": unidad, "costo": costo, "precio": precio, "stock_min": stock_min})
+                                idp = conn.execute(text("SELECT id_producto FROM productos WHERE codigo=:codigo"), {"codigo": codigo_final}).scalar()
+                                if stock_ini > 0:
+                                    conn.execute(text("""
+                                        INSERT INTO movimientos_stock (id_producto, tipo, cantidad, costo_unitario, referencia, id_usuario, observacion)
+                                        VALUES (:idp, 'MIGRACION_INICIAL', :cant, :costo, 'Stock inicial', :uid, 'Alta de producto')
+                                    """), {"idp": int(idp), "cant": stock_ini, "costo": costo, "uid": u["id_usuario"]})
+                            st.success("Producto creado correctamente.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error("No se pudo crear el producto. Revisa si el código ya existe.")
+                            st.exception(e)
+    else:
+        render_catalogo()
+        st.info("Vista de vendedor: puedes consultar productos, precios y stock. La creación y edición quedan reservadas al administrador.")
 
 def page_inventario():
     st.markdown("<div class='clomar-hero'><h1>📊 Inventario</h1><p>Stock actual, stock crítico y valorización.</p></div>", unsafe_allow_html=True)
