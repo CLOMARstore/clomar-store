@@ -28,7 +28,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V27 PWA instalable básica"
+APP_VERSION = "V27.1 PWA Force RAW"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -42,20 +42,23 @@ st.set_page_config(
 # ============================================================
 # V27 PWA / APP INSTALABLE
 # ============================================================
-PWA_MANIFEST_URL = "./app/static/manifest.json"
-PWA_ICON_URL = "./app/static/icon-192.png"
+PWA_MANIFEST_URL = "https://raw.githubusercontent.com/CLOMARstore/clomar-store/main/static/manifest.json"
+PWA_ICON_URL = "https://raw.githubusercontent.com/CLOMARstore/clomar-store/main/static/icon-192.png"
+PWA_ICON_512_URL = "https://raw.githubusercontent.com/CLOMARstore/clomar-store/main/static/icon-512.png"
 
 
 def inject_pwa_assets():
     """Inyecta manifest e iconos para que Chrome/Edge puedan sugerir instalación.
-    En Streamlit Cloud los archivos se sirven desde /app/static/ con static serving activo.
+    Esta variante usa RAW de GitHub porque en algunas apps de Streamlit Cloud /app/static/ no carga de forma confiable.
     """
     try:
         st.markdown(
             f"""
-            <link rel="manifest" href="{PWA_MANIFEST_URL}">
+            <link rel="manifest" href="{PWA_MANIFEST_URL}" crossorigin="anonymous">
             <meta name="theme-color" content="#111827">
-            <link rel="apple-touch-icon" href="{PWA_ICON_URL}">
+            <link rel="icon" type="image/png" sizes="192x192" href="{PWA_ICON_URL}">
+            <link rel="shortcut icon" type="image/png" href="{PWA_ICON_URL}">
+            <link rel="apple-touch-icon" href="{PWA_ICON_512_URL}">
             """,
             unsafe_allow_html=True,
         )
@@ -74,8 +77,11 @@ def inject_pwa_assets():
                   }}
                   for (const k in attrs) el.setAttribute(k, attrs[k]);
                 }}
-                upsert('link', 'rel', 'manifest', {{href: '{PWA_MANIFEST_URL}'}});
-                upsert('link', 'rel', 'apple-touch-icon', {{href: '{PWA_ICON_URL}'}});
+                d.title = 'Clomar Store';
+                upsert('link', 'rel', 'manifest', {{href: '{PWA_MANIFEST_URL}', crossorigin: 'anonymous'}});
+                upsert('link', 'rel', 'icon', {{href: '{PWA_ICON_URL}', type:'image/png', sizes:'192x192'}});
+                upsert('link', 'rel', 'shortcut icon', {{href: '{PWA_ICON_URL}', type:'image/png'}});
+                upsert('link', 'rel', 'apple-touch-icon', {{href: '{PWA_ICON_512_URL}'}});
                 let theme = d.querySelector('meta[name="theme-color"]');
                 if (!theme) {{ theme = d.createElement('meta'); theme.setAttribute('name','theme-color'); d.head.appendChild(theme); }}
                 theme.setAttribute('content', '#111827');
@@ -2065,7 +2071,7 @@ def page_instalar_app():
       <div>
         <h2 style='margin:0 0 6px'>Clomar Store</h2>
         <p style='margin:0;color:#64748b'>POS, inventario, caja, créditos y reportes en modo app instalable.</p>
-        <div style='margin-top:10px'><span class='chip chip-ok'>PWA básica V27</span><span class='chip chip-dark'>Android / Windows</span></div>
+        <div style='margin-top:10px'><span class='chip chip-ok'>PWA Force RAW V27.1</span><span class='chip chip-dark'>Android / Windows</span></div>
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -2103,7 +2109,7 @@ def page_instalar_app():
     <div class='card'>
       <h3>✅ Lista de prueba V27</h3>
       <p>Después de instalar, verifica: login, ventas, carrito, caja, créditos, productos y reportes. En celular la vista debe acomodarse en una columna y no debe cortar los botones principales.</p>
-      <p><b>Nota:</b> Streamlit permite esta instalación básica como acceso tipo app. La PWA completa con trabajo offline total queda para una etapa posterior.</p>
+      <p><b>Nota:</b> Esta versión usa íconos y manifest desde RAW de GitHub para evitar fallas de /app/static/ en Streamlit Cloud. La PWA completa con trabajo offline total queda para una etapa posterior.</p>
     </div>
     """, unsafe_allow_html=True)
 
