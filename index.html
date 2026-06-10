@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Clomar Store</title>
+  <meta name="description" content="Sistema POS para ventas, inventario, caja, créditos y reportes de Clomar Store." />
+  <meta name="theme-color" content="#111827" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Clomar Store" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" type="image/png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <style>
+    :root { --bg:#f7f5f2; --ink:#111827; --muted:#64748b; --card:#ffffff; --line:#e5e7eb; --accent:#e7aaa4; }
+    * { box-sizing:border-box; }
+    html, body { margin:0; height:100%; background:var(--bg); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:var(--ink); }
+    .shell { height:100vh; width:100vw; display:flex; flex-direction:column; overflow:hidden; }
+    .topbar { height:52px; display:flex; align-items:center; gap:12px; padding:8px 14px; background:#111827; color:white; box-shadow:0 2px 10px rgba(15,23,42,.18); z-index:2; }
+    .topbar img { width:34px; height:34px; border-radius:10px; background:#fff7f5; }
+    .title { font-weight:800; letter-spacing:.2px; }
+    .subtitle { font-size:12px; color:#cbd5e1; margin-left:auto; }
+    .frame-wrap { position:relative; flex:1; min-height:0; background:#fff; }
+    iframe { width:100%; height:100%; border:0; display:block; background:#fff; }
+    .loading { position:absolute; inset:0; display:grid; place-items:center; background:var(--bg); z-index:1; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:22px; padding:26px; box-shadow:0 20px 50px rgba(15,23,42,.12); width:min(520px,92vw); text-align:center; }
+    .card img { width:84px; height:84px; border-radius:22px; background:#fff7f5; margin-bottom:10px; }
+    .card h1 { margin:8px 0 6px; font-size:30px; }
+    .card p { margin:0 0 18px; color:var(--muted); line-height:1.45; }
+    .btn { display:inline-flex; align-items:center; justify-content:center; background:#111827; color:white; border-radius:14px; padding:12px 18px; text-decoration:none; font-weight:800; border:0; cursor:pointer; }
+    .install { display:none; margin-left:10px; background:#e7aaa4; color:#111827; }
+    @media (max-width:640px) { .subtitle { display:none; } .topbar { height:48px; } .title{font-size:15px;} }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <img src="icons/icon-192.png" alt="Clomar Store" />
+      <div class="title">Clomar Store</div>
+      <button id="installBtn" class="btn install">Instalar</button>
+      <div class="subtitle">POS · Inventario · Caja · Créditos</div>
+    </div>
+    <div class="frame-wrap">
+      <div class="loading" id="loading">
+        <div class="card">
+          <img src="icons/icon-192.png" alt="Clomar Store" />
+          <h1>Clomar Store</h1>
+          <p>Cargando el sistema comercial. Si no abre automáticamente, usa el botón.</p>
+          <a class="btn" href="https://clomar-store.streamlit.app" target="_blank" rel="noopener">Abrir sistema</a>
+        </div>
+      </div>
+      <iframe id="appFrame" src="https://clomar-store.streamlit.app/?embed=true" title="Clomar Store"></iframe>
+    </div>
+  </div>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+    }
+    const frame = document.getElementById('appFrame');
+    const loading = document.getElementById('loading');
+    frame.addEventListener('load', () => { setTimeout(() => loading.style.display = 'none', 800); });
+    setTimeout(() => { loading.style.display = 'none'; }, 9000);
+
+    let deferredPrompt;
+    const installBtn = document.getElementById('installBtn');
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBtn.style.display = 'inline-flex';
+    });
+    installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      installBtn.style.display = 'none';
+    });
+  </script>
+</body>
+</html>
