@@ -28,7 +28,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V25.6 Panel vendedor + ticket cálido + responsive"
+APP_VERSION = "V25.8 Caja diaria + créditos por cliente + reportes corregidos"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -2395,6 +2395,471 @@ def inject_css_v25_7():
     </style>
     """, unsafe_allow_html=True)
 
+
+
+# ============================================================
+# V25.8 - CAJA DIARIA + CRÉDITOS POR CLIENTE + REPORTES FIX
+# ============================================================
+def fmt_dt_peru(v):
+    """Alias estable: evita errores en reportes si una versión previa lo invoca."""
+    try:
+        return fmt_dt(v)
+    except Exception:
+        return str(v or "")
+
+
+def ensure_v25_8_schema():
+    """Migraciones suaves para control de cierres y abonos por producto."""
+    try:
+        safe_alter("pagos_credito", "id_detalle INTEGER")
+        safe_alter("pagos_credito", "producto_nombre VARCHAR(240) DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        exec_sql(f"""
+            CREATE TABLE IF NOT EXISTS cierres_caja (
+                id_cierre {id_sql()},
+                fecha_cierre DATE,
+                total_ingresos NUMERIC(12,2) DEFAULT 0,
+                total_egresos NUMERIC(12,2) DEFAULT 0,
+                saldo_sistema NUMERIC(12,2) DEFAULT 0,
+                efectivo_sistema NUMERIC(12,2) DEFAULT 0,
+                efectivo_contado NUMERIC(12,2) DEFAULT 0,
+                diferencia NUMERIC(12,2) DEFAULT 0,
+                id_usuario INTEGER,
+                observacion TEXT DEFAULT '',
+                creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    except Exception:
+        pass
+
+
+def _safe_float(v, default=0.0):
+    try:
+        if pd.isna(v):
+            return default
+        return float(v)
+    except Exception:
+        return default
+
+
+def _bar_report_html(df: pd.DataFrame, label_col: str, value_col: str, title: str, limit: int = 10, money_values: bool = True):
+    """Barras HTML sin indentación para que Streamlit no las muestre como código."""
+    if df is None or df.empty or value_col not in df.columns:
+        st.markdown(f"<div class='report-card'><h3>{esc(title)}</h3><div class='empty-chart'>Sin datos para mostrar.</div></div>", unsafe_allow_html=True)
+        return
+    data = df.copy()
+    data[value_col] = pd.to_numeric(data[value_col], errors='coerce').fillna(0)
+    data = data.sort_values(value_col, ascending=False).head(limit)
+    maxv = float(data[value_col].max() or 0)
+    rows = []
+    for _, r in data.iterrows():
+        val = _safe_float(r.get(value_col))
+        pct = 0 if maxv <= 0 else max(3, min(100, (val / maxv) * 100))
+        raw_label = r.get(label_col)
+        label = esc(raw_label if pd.notna(raw_label) and str(raw_label).strip() else "Sin dato")
+        value = money(val) if money_values else num(val)
+        rows.append("<div class='bar-row'>"
+                    f"<div class='bar-line'><span>{label}</span><span>{value}</span></div>"
+                    f"<div class='bar-track'><div class='bar-fill' style='width:{pct:.1f}%'></div></div>"
+                    "</div>")
+    html = f"<div class='report-card'><h3>{esc(title)}</h3>{''.join(rows)}</div>"
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def _format_fecha_col(df: pd.DataFrame, col: str = "fecha"):
+    out = df.copy()
+    if col in out.columns:
+        out[col + "_fmt"] = out[col].apply(fmt_dt)
+    return out
+
+
+def _venta_detalle(id_venta: int) -> pd.DataFrame:
+    return query_df("""
+        SELECT dv.id_detalle, dv.id_venta, dv.id_producto, dv.producto_nombre, dv.cantidad,
+               dv.precio_unitario, dv.subtotal,
+               COALESCE(SUM(pc.monto),0) AS abonado_producto
+        FROM detalle_ventas dv
+        LEFT JOIN pagos_credito pc ON pc.id_detalle=dv.id_detalle
+        WHERE dv.id_venta=:idv
+        GROUP BY dv.id_detalle, dv.id_venta, dv.id_producto, dv.producto_nombre, dv.cantidad, dv.precio_unitario, dv.subtotal
+        ORDER BY dv.id_detalle
+    """, {"idv": int(id_venta)})
+
+
+def _creditos_pendientes_df() -> pd.DataFrame:
+    return query_df("""
+        SELECT v.id_venta, v.id_cliente, v.comprobante, v.fecha, v.fecha_vencimiento, v.tipo_venta, v.metodo_pago,
+               v.total_venta, v.monto_pagado, v.saldo_pendiente, v.estado_pago,
+               COALESCE(c.nombre_cliente,'Cliente general') AS cliente,
+               COALESCE(c.telefono,'') AS telefono,
+               COALESCE(c.documento,'') AS documento
+        FROM ventas v
+        LEFT JOIN clientes c ON c.id_cliente=v.id_cliente
+        WHERE COALESCE(v.anulada,0)=0 AND COALESCE(v.saldo_pendiente,0) > 0
+        ORDER BY COALESCE(v.fecha_vencimiento, DATE(v.fecha)) ASC, v.fecha DESC
+    """)
+
+
+def page_panel_dueno():
+    hero("Panel del dueño", "Control rápido de ventas, caja, stock y rendimiento por vendedor.", "📊")
+    c1, c2 = st.columns(2)
+    with c1:
+        fecha_desde = st.date_input("Desde", peru_today(), key="pd_desde_v258")
+    with c2:
+        fecha_hasta = st.date_input("Hasta", peru_today(), key="pd_hasta_v258")
+
+    ventas = ventas_periodo(fecha_desde, fecha_hasta)
+    detalle = detalle_productos_vendidos(fecha_desde, fecha_hasta)
+    productos = productos_con_stock()
+    caja = query_df("SELECT * FROM caja WHERE DATE(fecha) BETWEEN :d AND :h AND COALESCE(anulada,0)=0", {"d": str(fecha_desde), "h": str(fecha_hasta)})
+
+    total_ventas = _safe_float(ventas["total_venta"].sum()) if not ventas.empty else 0
+    utilidad = _safe_float(detalle["utilidad"].sum()) if detalle is not None and not detalle.empty and "utilidad" in detalle.columns else 0
+    ticket = total_ventas / max(len(ventas), 1)
+    ingresos = _safe_float(caja[caja["tipo"].astype(str).str.lower().eq("ingreso")]["monto"].sum()) if not caja.empty else 0
+    egresos = _safe_float(caja[caja["tipo"].astype(str).str.lower().eq("egreso")]["monto"].sum()) if not caja.empty else 0
+
+    a,b,c,d = st.columns(4)
+    with a: kpi("Ventas", money(total_ventas), f"{len(ventas)} comprobantes")
+    with b: kpi("Utilidad estimada", money(utilidad), "Según costo registrado")
+    with c: kpi("Ticket promedio", money(ticket), "Promedio por venta")
+    with d: kpi("Caja neta", money(ingresos-egresos), "Ingresos - egresos")
+
+    resumen = _vendor_summary(ventas, detalle)
+    st.subheader("Ventas por vendedor")
+    if resumen.empty:
+        st.info("No hay ventas por vendedor en el período.")
+    else:
+        show = resumen.copy()
+        show["total_fmt"] = show["total_venta"].apply(money)
+        show["cobrado_fmt"] = show["cobrado"].apply(money)
+        show["saldo_fmt"] = show["saldo"].apply(money)
+        show["utilidad_fmt"] = show["utilidad"].apply(money)
+        html_table(show, ["vendedor_nombre","comprobantes","productos","total_fmt","cobrado_fmt","saldo_fmt","utilidad_fmt"], ["Vendedor","Ventas","Unid.","Total","Cobrado","Crédito","Utilidad"], 20)
+        _bar_report_html(resumen, "vendedor_nombre", "total_venta", "Ranking visual por vendedor", 8, True)
+
+    x1,x2 = st.columns([1.35,1])
+    with x1:
+        st.subheader("Ventas recientes")
+        if ventas.empty:
+            st.info("Todavía no hay ventas en el período.")
+        else:
+            vv = ventas.copy()
+            vv["fecha_fmt"] = vv["fecha"].apply(fmt_dt)
+            vv["total_fmt"] = vv["total_venta"].apply(money)
+            html_table(vv, ["comprobante","fecha_fmt","cliente","vendedor_nombre","metodo_pago","total_fmt"], ["Comprobante","Fecha Perú","Cliente","Vendedor","Pago","Total"], 10)
+    with x2:
+        st.subheader("Stock crítico")
+        crit = productos[productos["stock_actual"].astype(float) <= productos["stock_minimo"].astype(float)] if not productos.empty else pd.DataFrame()
+        if crit.empty:
+            st.success("Sin productos críticos.")
+        else:
+            for _, r in crit.head(10).iterrows():
+                st.markdown(f"<span class='chip chip-red'>⚠️ {esc(r['nombre_producto'])} · Stock {num(r['stock_actual'])}</span>", unsafe_allow_html=True)
+
+
+def page_reportes():
+    hero("Reportes", "Ventas por vendedor, producto, método de pago, crédito y comprobantes.", "📈")
+    if not is_admin():
+        st.warning("Solo administrador puede ver reportes.")
+        return
+    c1, c2 = st.columns(2)
+    with c1:
+        desde = st.date_input("Desde", peru_today() - timedelta(days=7), key="repd_v258")
+    with c2:
+        hasta = st.date_input("Hasta", peru_today(), key="reph_v258")
+
+    ventas = ventas_periodo(desde, hasta)
+    detalle = detalle_productos_vendidos(desde, hasta)
+    if ventas.empty:
+        st.info("No hay ventas en el rango seleccionado.")
+        return
+
+    for col in ["total_venta", "monto_pagado", "saldo_pendiente"]:
+        if col in ventas.columns:
+            ventas[col] = pd.to_numeric(ventas[col], errors="coerce").fillna(0)
+    total = _safe_float(ventas["total_venta"].sum())
+    cobrado = _safe_float(ventas["monto_pagado"].sum())
+    credito = _safe_float(ventas["saldo_pendiente"].sum())
+    utilidad = _safe_float(detalle["utilidad"].sum()) if detalle is not None and not detalle.empty and "utilidad" in detalle.columns else 0
+    ticket = total / max(len(ventas), 1)
+
+    k1, k2, k3, k4 = st.columns(4)
+    with k1: kpi("Ventas", money(total), f"{len(ventas)} comprobantes")
+    with k2: kpi("Cobrado", money(cobrado), "Ingreso recibido")
+    with k3: kpi("Crédito", money(credito), "Saldo pendiente")
+    with k4: kpi("Ticket prom.", money(ticket), "Promedio por venta")
+
+    resumen = _vendor_summary(ventas, detalle)
+    st.subheader("Ventas por vendedor")
+    if not resumen.empty:
+        show = resumen.copy()
+        show["total_fmt"] = show["total_venta"].apply(money)
+        show["cobrado_fmt"] = show["cobrado"].apply(money)
+        show["saldo_fmt"] = show["saldo"].apply(money)
+        show["utilidad_fmt"] = show["utilidad"].apply(money)
+        show["ticket_fmt"] = show["ticket_promedio"].apply(money)
+        html_table(show, ["vendedor_nombre", "comprobantes", "productos", "total_fmt", "cobrado_fmt", "saldo_fmt", "utilidad_fmt", "ticket_fmt"], ["Vendedor", "Ventas", "Unid.", "Total", "Cobrado", "Crédito", "Utilidad", "Ticket"], 50)
+        _bar_report_html(resumen, "vendedor_nombre", "total_venta", "Ranking visual por vendedor", 8, True)
+
+    ventas2 = ventas.copy()
+    ventas2["dia"] = ventas2["fecha"].apply(lambda x: _to_peru_dt(x).strftime("%d/%m") if _to_peru_dt(x) else str(x)[:10])
+    diario = ventas2.groupby("dia", as_index=False)["total_venta"].sum()
+    metodo = ventas2.groupby("metodo_pago", as_index=False)["total_venta"].sum() if "metodo_pago" in ventas2.columns else pd.DataFrame()
+    c1, c2 = st.columns(2)
+    with c1:
+        _bar_report_html(diario, "dia", "total_venta", "Ventas por día", 12, True)
+    with c2:
+        _bar_report_html(metodo, "metodo_pago", "total_venta", "Métodos de pago", 8, True)
+
+    st.subheader("Productos vendidos")
+    if detalle is not None and not detalle.empty:
+        for col in ["total_vendido", "cantidad", "utilidad"]:
+            if col in detalle.columns:
+                detalle[col] = pd.to_numeric(detalle[col], errors="coerce").fillna(0)
+        top = detalle.groupby("producto", as_index=False).agg(total_vendido=("total_vendido", "sum"), cantidad=("cantidad", "sum"), utilidad=("utilidad", "sum")).sort_values("total_vendido", ascending=False)
+        _bar_report_html(top, "producto", "total_vendido", "Productos con mayor venta", 10, True)
+        top_show = top.copy()
+        top_show["total_fmt"] = top_show["total_vendido"].apply(money)
+        top_show["utilidad_fmt"] = top_show["utilidad"].apply(money)
+        html_table(top_show, ["producto", "cantidad", "total_fmt", "utilidad_fmt"], ["Producto", "Cantidad", "Total vendido", "Utilidad"], 100)
+    else:
+        st.info("No hay detalle de productos vendidos.")
+
+    st.subheader("Detalle de comprobantes")
+    detv = ventas.copy()
+    detv["fecha_fmt"] = detv["fecha"].apply(fmt_dt)
+    detv["total_fmt"] = detv["total_venta"].apply(money)
+    detv["pagado_fmt"] = detv["monto_pagado"].apply(money)
+    detv["saldo_fmt"] = detv["saldo_pendiente"].apply(money)
+    html_table(detv, ["comprobante", "fecha_fmt", "cliente", "vendedor_nombre", "metodo_pago", "total_fmt", "pagado_fmt", "saldo_fmt", "estado_pago"], ["Comprobante", "Fecha", "Cliente", "Vendedor", "Pago", "Total", "Pagado", "Saldo", "Estado"], 200)
+
+
+def page_caja():
+    hero("Caja", "Cierre diario, ingresos, egresos, pagos por método y diferencias.", "💰")
+    if not is_admin():
+        st.warning("Solo administrador puede ver caja.")
+        return
+    ensure_v25_8_schema()
+    f = st.date_input("Fecha de caja", peru_today(), key="caja_fecha_v258")
+    caja = query_df("SELECT * FROM caja WHERE DATE(fecha)=:f AND COALESCE(anulada,0)=0 ORDER BY fecha DESC", {"f": str(f)})
+    ventas = ventas_periodo(f, f)
+    ingresos = _safe_float(caja[caja["tipo"].astype(str).str.lower().eq("ingreso")]["monto"].sum()) if not caja.empty else 0
+    egresos = _safe_float(caja[caja["tipo"].astype(str).str.lower().eq("egreso")]["monto"].sum()) if not caja.empty else 0
+    neto = ingresos - egresos
+    venta_total = _safe_float(ventas["total_venta"].sum()) if not ventas.empty else 0
+    cobrado = _safe_float(ventas["monto_pagado"].sum()) if not ventas.empty else 0
+    credito = _safe_float(ventas["saldo_pendiente"].sum()) if not ventas.empty else 0
+
+    a,b,c,d = st.columns(4)
+    with a: kpi("Ventas del día", money(venta_total), f"{len(ventas)} comprobantes")
+    with b: kpi("Cobrado", money(cobrado), "Ventas + abonos")
+    with c: kpi("Crédito generado", money(credito), "Pendiente de cobro")
+    with d: kpi("Caja neta", money(neto), "Ingresos - egresos")
+
+    st.subheader("Cierre diario recomendado")
+    if caja.empty:
+        st.info("No hay movimientos de caja para la fecha.")
+    else:
+        mov = caja.copy()
+        mov["monto"] = pd.to_numeric(mov["monto"], errors="coerce").fillna(0)
+        por_metodo = mov.groupby(["metodo_pago", "tipo"], as_index=False)["monto"].sum()
+        piv = por_metodo.pivot_table(index="metodo_pago", columns="tipo", values="monto", aggfunc="sum", fill_value=0).reset_index()
+        if "Ingreso" not in piv.columns: piv["Ingreso"] = 0
+        if "Egreso" not in piv.columns: piv["Egreso"] = 0
+        piv["Neto"] = piv["Ingreso"] - piv["Egreso"]
+        piv_show = piv.copy()
+        for col in ["Ingreso", "Egreso", "Neto"]:
+            piv_show[col + "_fmt"] = piv_show[col].apply(money)
+        html_table(piv_show, ["metodo_pago", "Ingreso_fmt", "Egreso_fmt", "Neto_fmt"], ["Método", "Ingresos", "Egresos", "Neto"], 20)
+
+    efectivo_sistema = 0
+    if not caja.empty:
+        tmp = caja.copy()
+        tmp["monto"] = pd.to_numeric(tmp["monto"], errors="coerce").fillna(0)
+        efectivo_ing = tmp[(tmp["metodo_pago"].astype(str).str.lower().eq("efectivo")) & (tmp["tipo"].astype(str).str.lower().eq("ingreso"))]["monto"].sum()
+        efectivo_egr = tmp[(tmp["metodo_pago"].astype(str).str.lower().eq("efectivo")) & (tmp["tipo"].astype(str).str.lower().eq("egreso"))]["monto"].sum()
+        efectivo_sistema = _safe_float(efectivo_ing - efectivo_egr)
+
+    with st.form("form_cierre_caja_v258"):
+        x1,x2 = st.columns(2)
+        with x1:
+            efectivo_contado = st.number_input("Efectivo contado físico", min_value=0.0, value=float(max(efectivo_sistema,0)), step=1.0)
+        with x2:
+            obs = st.text_input("Observación de cierre", placeholder="Ej: cierre correcto, faltante, sobrante")
+        diferencia = efectivo_contado - efectivo_sistema
+        st.markdown(f"<div class='card'><b>Efectivo sistema:</b> {money(efectivo_sistema)} &nbsp; <b>Diferencia:</b> <span class='chip {'chip-ok' if abs(diferencia) < 0.01 else 'chip-red'}'>{money(diferencia)}</span></div>", unsafe_allow_html=True)
+        guardar = st.form_submit_button("Guardar cierre diario", type="primary", use_container_width=True)
+    if guardar:
+        exec_sql("""
+            INSERT INTO cierres_caja (fecha_cierre,total_ingresos,total_egresos,saldo_sistema,efectivo_sistema,efectivo_contado,diferencia,id_usuario,observacion)
+            VALUES (:f,:ing,:egr,:neto,:efs,:efc,:dif,:uid,:obs)
+        """, {"f": str(f), "ing": ingresos, "egr": egresos, "neto": neto, "efs": efectivo_sistema, "efc": efectivo_contado, "dif": diferencia, "uid": current_user()["id_usuario"], "obs": obs})
+        st.success("Cierre diario guardado.")
+
+    st.subheader("Movimientos de caja")
+    if not caja.empty:
+        ctab = caja.copy()
+        ctab["fecha_fmt"] = ctab["fecha"].apply(fmt_dt)
+        ctab["monto_fmt"] = ctab["monto"].apply(money)
+        html_table(ctab, ["fecha_fmt","tipo","concepto","metodo_pago","monto_fmt","referencia"], ["Fecha","Tipo","Concepto","Pago","Monto","Ref"], 200)
+
+    with st.expander("Registrar egreso / salida"):
+        with st.form("egreso_v258"):
+            concepto = st.text_input("Concepto")
+            monto = st.number_input("Monto", min_value=0.0, step=1.0)
+            metodo = st.selectbox("Método", ["Efectivo","Yape","Plin","Transferencia","Tarjeta"])
+            if st.form_submit_button("Registrar egreso", type="primary"):
+                exec_sql("INSERT INTO caja (tipo,concepto,metodo_pago,monto,id_usuario) VALUES ('Egreso',:c,:m,:mo,:u)", {"c":concepto,"m":metodo,"mo":monto,"u":current_user()["id_usuario"]})
+                clear_report_cache(); st.success("Egreso registrado."); st.rerun()
+
+    with st.expander("Historial de cierres guardados", expanded=False):
+        cierres = query_df("SELECT * FROM cierres_caja ORDER BY creado_en DESC LIMIT 30")
+        if cierres.empty:
+            st.info("Todavía no hay cierres guardados.")
+        else:
+            cc = cierres.copy()
+            for col in ["total_ingresos", "total_egresos", "saldo_sistema", "efectivo_sistema", "efectivo_contado", "diferencia"]:
+                cc[col + "_fmt"] = cc[col].apply(money)
+            html_table(cc, ["fecha_cierre", "total_ingresos_fmt", "total_egresos_fmt", "saldo_sistema_fmt", "efectivo_sistema_fmt", "efectivo_contado_fmt", "diferencia_fmt", "observacion"], ["Fecha", "Ingresos", "Egresos", "Saldo", "Efec. sistema", "Efec. contado", "Dif.", "Observación"], 30)
+
+
+def page_creditos():
+    hero("Créditos / cuentas por cobrar", "Saldos por cliente, abonos parciales y control por producto.", "💳")
+    if not is_admin():
+        st.warning("Solo administrador puede ver créditos y cuentas por cobrar.")
+        return
+    ensure_v25_8_schema()
+    pendientes = _creditos_pendientes_df()
+    total_pendiente = _safe_float(pendientes["saldo_pendiente"].sum()) if not pendientes.empty else 0
+    vencidas = 0
+    if not pendientes.empty and "fecha_vencimiento" in pendientes.columns:
+        fv = pd.to_datetime(pendientes["fecha_vencimiento"], errors="coerce").dt.date
+        vencidas = int(((fv < peru_today()) & pendientes["saldo_pendiente"].astype(float).gt(0)).sum())
+    c1,c2,c3 = st.columns(3)
+    with c1: kpi("Total por cobrar", money(total_pendiente), "Saldo pendiente")
+    with c2: kpi("Ventas pendientes", str(len(pendientes)), "Créditos abiertos")
+    with c3: kpi("Vencidas", str(vencidas), "Requieren seguimiento")
+
+    st.subheader("Resumen por cliente")
+    if pendientes.empty:
+        st.success("No hay cuentas por cobrar pendientes.")
+        return
+    grp = pendientes.copy()
+    grp["total_venta"] = pd.to_numeric(grp["total_venta"], errors="coerce").fillna(0)
+    grp["monto_pagado"] = pd.to_numeric(grp["monto_pagado"], errors="coerce").fillna(0)
+    grp["saldo_pendiente"] = pd.to_numeric(grp["saldo_pendiente"], errors="coerce").fillna(0)
+    cli = grp.groupby(["cliente", "telefono"], as_index=False).agg(comprobantes=("id_venta","count"), total=("total_venta","sum"), pagado=("monto_pagado","sum"), saldo=("saldo_pendiente","sum"))
+    cli_show = cli.copy()
+    cli_show["total_fmt"] = cli_show["total"].apply(money)
+    cli_show["pagado_fmt"] = cli_show["pagado"].apply(money)
+    cli_show["saldo_fmt"] = cli_show["saldo"].apply(money)
+    html_table(cli_show, ["cliente", "telefono", "comprobantes", "total_fmt", "pagado_fmt", "saldo_fmt"], ["Cliente", "Teléfono", "Ventas", "Total", "Pagado", "Saldo"], 100)
+
+    st.subheader("Registrar abono / pago parcial")
+    clientes_opts = list(cli.sort_values("cliente")["cliente"])
+    cliente_sel = st.selectbox("Cliente", clientes_opts, key="credito_cliente_v258")
+    pend_cli = pendientes[pendientes["cliente"].astype(str).eq(str(cliente_sel))].copy()
+    opts = {f"{r['comprobante']} · Saldo {money(r['saldo_pendiente'])} · {fmt_dt(r['fecha'])}": int(r["id_venta"]) for _, r in pend_cli.iterrows()}
+    venta_label = st.selectbox("Comprobante pendiente", list(opts.keys()), key="credito_venta_v258")
+    idv = opts[venta_label]
+    venta_sel = pend_cli[pend_cli["id_venta"].eq(idv)].iloc[0]
+    saldo_actual = _safe_float(venta_sel["saldo_pendiente"])
+    detalles = _venta_detalle(idv)
+    if not detalles.empty:
+        det_show = detalles.copy()
+        det_show["subtotal_fmt"] = det_show["subtotal"].apply(money)
+        det_show["abonado_fmt"] = det_show["abonado_producto"].apply(money)
+        det_show["saldo_producto"] = pd.to_numeric(det_show["subtotal"], errors="coerce").fillna(0) - pd.to_numeric(det_show["abonado_producto"], errors="coerce").fillna(0)
+        det_show["saldo_producto_fmt"] = det_show["saldo_producto"].apply(money)
+        html_table(det_show, ["producto_nombre", "cantidad", "subtotal_fmt", "abonado_fmt", "saldo_producto_fmt"], ["Producto", "Cant.", "Subtotal", "Abonado aplicado", "Saldo producto"], 50)
+    product_options = {"Abono general al comprobante": None}
+    if not detalles.empty:
+        for _, d in detalles.iterrows():
+            prod = str(d.get("producto_nombre") or "Producto")
+            product_options[f"{prod} · Subtotal {money(d.get('subtotal'))}"] = int(d.get("id_detalle"))
+
+    with st.form("form_pago_credito_producto_v258"):
+        aplicar_label = st.selectbox("Aplicar pago a", list(product_options.keys()))
+        col1, col2, col3 = st.columns([.8,.8,1.2])
+        with col1:
+            monto = st.number_input("Monto recibido", min_value=0.0, max_value=float(saldo_actual), value=float(saldo_actual), step=1.0)
+        with col2:
+            metodo = st.selectbox("Método de pago", ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Mixto"])
+        with col3:
+            obs = st.text_input("Observación", placeholder="Ej: abono parcial por producto")
+        registrar = st.form_submit_button("Registrar pago y actualizar deuda", type="primary", use_container_width=True)
+
+    if registrar:
+        if monto <= 0:
+            st.error("El monto debe ser mayor a cero.")
+        else:
+            id_detalle = product_options[aplicar_label]
+            prod_nombre = ""
+            if id_detalle is not None and not detalles.empty:
+                rowp = detalles[detalles["id_detalle"].eq(id_detalle)]
+                if not rowp.empty:
+                    prod_nombre = str(rowp.iloc[0].get("producto_nombre") or "")
+            nuevo_pagado = _safe_float(venta_sel["monto_pagado"]) + monto
+            nuevo_saldo = max(_safe_float(venta_sel["total_venta"]) - nuevo_pagado, 0)
+            nuevo_estado = "Pagada" if nuevo_saldo <= 0 else "Parcial"
+            with ENGINE.begin() as conn:
+                conn.execute(text("UPDATE ventas SET monto_pagado=:pagado, saldo_pendiente=:saldo, estado_pago=:estado WHERE id_venta=:id"), {"pagado": nuevo_pagado, "saldo": nuevo_saldo, "estado": nuevo_estado, "id": idv})
+                conn.execute(text("""
+                    INSERT INTO pagos_credito (id_venta,id_cliente,metodo_pago,monto,referencia,id_usuario,observacion,id_detalle,producto_nombre)
+                    VALUES (:idv,:cli,:metodo,:monto,:ref,:uid,:obs,:idd,:prod)
+                """), {"idv": idv, "cli": int(venta_sel["id_cliente"]) if pd.notna(venta_sel.get("id_cliente")) else None, "metodo": metodo, "monto": monto, "ref": venta_sel["comprobante"], "uid": current_user()["id_usuario"], "obs": obs, "idd": id_detalle, "prod": prod_nombre})
+                conn.execute(text("""
+                    INSERT INTO caja (tipo,concepto,metodo_pago,monto,referencia,id_usuario,observacion)
+                    VALUES ('Ingreso',:concepto,:metodo,:monto,:ref,:uid,:obs)
+                """), {"concepto": f"Pago crédito {venta_sel['comprobante']}", "metodo": metodo, "monto": monto, "ref": venta_sel["comprobante"], "uid": current_user()["id_usuario"], "obs": obs})
+            clear_report_cache()
+            st.success(f"Pago registrado. Nuevo saldo: {money(nuevo_saldo)}")
+            st.rerun()
+
+    st.subheader("Pendientes por cobrar")
+    df = pendientes.copy()
+    df["fecha_fmt"] = df["fecha"].apply(fmt_dt)
+    df["total_fmt"] = df["total_venta"].apply(money)
+    df["pagado_fmt"] = df["monto_pagado"].apply(money)
+    df["saldo_fmt"] = df["saldo_pendiente"].apply(money)
+    html_table(df, ["comprobante","fecha_fmt","fecha_vencimiento","cliente","telefono","total_fmt","pagado_fmt","saldo_fmt","estado_pago"], ["Comprobante","Fecha","Vence","Cliente","Teléfono","Total","Pagado","Saldo","Estado"], 300)
+
+    with st.expander("Historial de pagos registrados", expanded=False):
+        pagos = query_df("""
+            SELECT pc.fecha, pc.referencia, COALESCE(c.nombre_cliente,'Cliente') AS cliente, pc.metodo_pago, pc.monto, pc.producto_nombre, pc.observacion
+            FROM pagos_credito pc
+            LEFT JOIN clientes c ON c.id_cliente=pc.id_cliente
+            ORDER BY pc.fecha DESC
+        """)
+        if pagos.empty:
+            st.info("Todavía no hay pagos de crédito registrados.")
+        else:
+            pagos["fecha_fmt"] = pagos["fecha"].apply(fmt_dt)
+            pagos["monto_fmt"] = pagos["monto"].apply(money)
+            html_table(pagos, ["fecha_fmt","referencia","cliente","producto_nombre","metodo_pago","monto_fmt","observacion"], ["Fecha","Comprobante","Cliente","Producto aplicado","Método","Monto","Observación"], 300)
+
+
+def inject_css_v25_8():
+    st.markdown("""
+    <style>
+      .report-card, .report-card * { color:#111827 !important; }
+      .bar-line span { color:#111827 !important; }
+      .bar-fill { background:#0f172a !important; }
+      .empty-chart { background:#ffffff !important; color:#64748b !important; }
+      .stButton > button[kind="primary"], [data-testid="stFormSubmitButton"] button, button[data-testid="baseButton-primary"] {
+        background:#0f172a !important; color:#ffffff !important; border-color:#0f172a !important;
+      }
+      .stButton > button[kind="primary"] *, [data-testid="stFormSubmitButton"] button *, button[data-testid="baseButton-primary"] * { color:#ffffff !important; opacity:1 !important; }
+      .stButton > button[kind="primary"] p, [data-testid="stFormSubmitButton"] button p { color:#ffffff !important; }
+      .chip-red { background:#fff7ed !important; color:#9a3412 !important; border-color:#fed7aa !important; }
+      .credit-client-card { background:#fff; border:1px solid #e5e7eb; border-radius:18px; padding:16px; box-shadow:0 8px 22px rgba(15,23,42,.05); }
+    </style>
+    """, unsafe_allow_html=True)
+
+
 # ============================================================
 # ARRANQUE
 # ============================================================
@@ -2409,6 +2874,7 @@ inject_css()
 inject_css_v25_5()
 inject_css_v25_6()
 inject_css_v25_7()
+inject_css_v25_8()
 
 # Catálogo público por URL
 try:
