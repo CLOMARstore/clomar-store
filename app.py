@@ -28,7 +28,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V27.1 PWA Force RAW"
+APP_VERSION = "V29 POS móvil rápido - correcciones"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -971,7 +971,7 @@ def product_card_html(r, show_cost=False, show_stock=True, whatsapp=False, show_
     chip_cost = f"<span class='chip chip-dark'>Costo {money(r.get('costo_unitario'))}</span>" if show_cost else ""
     desc = esc(str(r.get("descripcion") or "")[:120])
     desc_html = f"<div class='product-desc'>{desc}</div>" if show_desc and desc else ""
-    img_html = f"<img class='product-img' src='{esc(img)}' onerror=\"this.style.display='none';this.parentElement.classList.add('no-img');\">" if img else ""
+    img_html = f"<img class='preview-img' src='{esc(img)}'>" if img else "<div class='preview-img'></div>"
     wa = f"<a href='{esc(wa_link(r.get('nombre_producto')))}' target='_blank' style='text-decoration:none'><div class='chip chip-dark' style='text-align:center;width:100%;box-sizing:border-box;margin-top:8px'>💬 Consultar por WhatsApp</div></a>" if whatsapp else ""
     return f"""
     <div class='product-card'>
@@ -3621,7 +3621,7 @@ def page_ventas():
                     r = productos[productos["label_pos"].eq(sel)].iloc[0]
                     stock = float(r.get("stock_actual") or 0)
                     img = product_image_candidates(r)[0] if product_image_candidates(r) else ""
-                    img_html = f"<img class='preview-img' src='{esc(img)}' onerror=\"this.style.display='none'\">" if img else "<div class='preview-img'></div>"
+                    img_html = f"<img class='preview-img' src='{esc(img)}'>" if img else "<div class='preview-img'></div>"
                     st.markdown(f"""
                     <div class='preview-product'>
                       {img_html}
@@ -4357,7 +4357,7 @@ def page_ventas():
                     r = productos[productos["label_pos"].eq(sel)].iloc[0]
                     stock = float(r.get("stock_actual") or 0)
                     img = product_image_candidates(r)[0] if product_image_candidates(r) else ""
-                    img_html = f"<img class='preview-img' src='{esc(img)}' onerror=\"this.style.display='none'\">" if img else "<div class='preview-img'></div>"
+                    img_html = f"<img class='preview-img' src='{esc(img)}'>" if img else "<div class='preview-img'></div>"
                     st.markdown(f"""
                     <div class='preview-product'>
                       {img_html}
@@ -4819,34 +4819,55 @@ def page_ingreso_mercaderia():
     if productos.empty:
         st.info("Primero registra productos en el módulo Productos.")
         return
-    with st.form("ingreso_mercaderia_v261"):
-        proveedor = st.text_input("Proveedor", placeholder="Nombre del proveedor")
-        opciones = {f"{normalize_code(r['codigo'])} · {r['nombre_producto']} · Stock {num(r['stock_actual'])}": int(r['id_producto']) for _, r in productos.iterrows()}
-        prod_sel = st.selectbox("Producto", list(opciones.keys()))
-        c1,c2,c3 = st.columns(3)
-        with c1:
-            cantidad = st.number_input("Cantidad ingresada", min_value=0.0, step=1.0)
-        with c2:
-            costo = st.number_input("Costo unitario", min_value=0.0, step=1.0)
-        with c3:
-            metodo = st.selectbox("Método de pago", ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Crédito"])
-        c4,c5 = st.columns(2)
-        with c4:
-            monto_pagado = st.number_input("Monto pagado", min_value=0.0, step=1.0)
-        with c5:
-            obs = st.text_input("Observación", placeholder="Factura, guía, nota de compra...")
-        total = cantidad * costo
-        kpi("Total ingreso", money(total), "Costo de mercadería")
-        guardar = st.form_submit_button("Registrar ingreso de mercadería", type="primary", use_container_width=True)
+    # V29: este bloque ya no usa st.form para que cantidad, costo, total y pago se actualicen en vivo.
+    proveedor = st.text_input("Proveedor", placeholder="Nombre del proveedor", key="ing_proveedor_v29")
+    opciones = {f"{normalize_code(r['codigo'])} · {r['nombre_producto']} · Stock {num(r['stock_actual'])}": int(r['id_producto']) for _, r in productos.iterrows()}
+    prod_sel = st.selectbox("Producto", list(opciones.keys()), key="ing_producto_v29")
+
+    c1,c2,c3 = st.columns(3)
+    with c1:
+        cantidad = st.number_input("Cantidad ingresada", min_value=0.0, step=1.0, key="ing_cantidad_v29")
+    with c2:
+        costo = st.number_input("Costo unitario", min_value=0.0, step=1.0, key="ing_costo_v29")
+    with c3:
+        metodo = st.selectbox("Método de pago", ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Crédito"], key="ing_metodo_v29")
+
+    total = float(cantidad or 0) * float(costo or 0)
+
+    c4,c5 = st.columns(2)
+    with c4:
+        if metodo == "Crédito":
+            max_pagado = float(total) if total > 0 else 0.0
+            monto_pagado = st.number_input("Monto pagado / adelanto", min_value=0.0, max_value=max_pagado, value=0.0, step=1.0, key="ing_monto_credito_v29")
+        else:
+            monto_pagado = float(total)
+            st.text_input("Monto pagado", value=money(monto_pagado), disabled=True, key="ing_monto_auto_v29")
+            st.caption("Se calcula automáticamente: cantidad × costo unitario.")
+    with c5:
+        obs = st.text_input("Observación", placeholder="Factura, guía, nota de compra...", key="ing_obs_v29")
+
+    saldo = max(float(total) - float(monto_pagado), 0)
+    k1,k2,k3 = st.columns(3)
+    with k1: kpi("Total ingreso", money(total), "Cantidad × costo")
+    with k2: kpi("Monto pagado", money(monto_pagado), "Automático salvo crédito")
+    with k3: kpi("Saldo", money(saldo), "Pendiente al proveedor")
+
+    guardar = st.button("Registrar ingreso de mercadería", type="primary", use_container_width=True, key="btn_ing_guardar_v29")
     if guardar:
         if cantidad <= 0:
             st.error("Cantidad debe ser mayor a cero.")
+        elif costo <= 0:
+            st.error("Costo unitario debe ser mayor a cero.")
         else:
             idp = opciones[prod_sel]
             u = current_user()
             ref = f"ING{peru_now().strftime('%Y%m%d%H%M%S')}"
+            estado_pago = "Pagada" if saldo <= 0 else ("Parcial" if monto_pagado > 0 else "Pendiente")
             with ENGINE.begin() as conn:
-                conn.execute(text("INSERT INTO compras (proveedor,total_compra,monto_pagado,metodo_pago,observacion,id_usuario) VALUES (:p,:t,:mp,:m,:o,:u)"), {"p": proveedor, "t": total, "mp": monto_pagado, "m": metodo, "o": obs, "u": u["id_usuario"]})
+                conn.execute(text("""
+                    INSERT INTO compras (proveedor,total_compra,monto_pagado,metodo_pago,observacion,id_usuario,saldo_pendiente,estado_pago)
+                    VALUES (:p,:t,:mp,:m,:o,:u,:saldo,:estado)
+                """), {"p": proveedor, "t": total, "mp": monto_pagado, "m": metodo, "o": obs, "u": u["id_usuario"], "saldo": saldo, "estado": estado_pago})
                 conn.execute(text("INSERT INTO movimientos_stock (id_producto,tipo,cantidad,costo_unitario,referencia,id_usuario,observacion) VALUES (:id,'ENTRADA_COMPRA',:cant,:costo,:ref,:u,:obs)"), {"id": idp, "cant": cantidad, "costo": costo, "ref": ref, "u": u["id_usuario"], "obs": f"Proveedor: {proveedor}. {obs}"})
                 conn.execute(text("UPDATE productos SET costo_unitario=:c, actualizado_en=CURRENT_TIMESTAMP WHERE id_producto=:id"), {"c": costo, "id": idp})
                 if monto_pagado > 0:
@@ -4934,34 +4955,42 @@ def page_ventas():
             productos = productos[productos["stock_actual"] > 0].copy()
         left, right = st.columns([1.05,.95])
         with left:
-            st.markdown("<div class='pos-panel'><h3>Agregar producto</h3><p class='product-meta'>Puedes escanear código o elegir desde la lista. Solo se carga la imagen del producto seleccionado.</p>", unsafe_allow_html=True)
+            st.markdown("<div class='pos-panel'><h3>Agregar producto</h3><p class='product-meta'>Busca por nombre, código, marca o categoría. Se muestran productos similares para elegir rápido.</p>", unsafe_allow_html=True)
             if productos.empty:
                 st.info("No hay productos con stock disponible.")
             else:
                 productos["codigo_norm"] = productos["codigo"].apply(normalize_code)
                 productos["label_pos"] = productos.apply(lambda r: f"{normalize_code(r.get('codigo'))} · {r.get('nombre_producto')} · Stock {num(r.get('stock_actual'))} · {money(r.get('precio_venta'))}", axis=1)
-                scan = st.text_input("Escanear / escribir código", placeholder="Ubica el cursor aquí y escanea con lector USB", key="pos_scan_v261")
-                default_idx = 0
+                scan = st.text_input("Buscar / escanear producto", placeholder="Escribe nombre, código, marca o escanea con lector USB", key="pos_scan_v29")
+
+                resultados = productos.copy()
                 if scan.strip():
-                    q = normalize_code(scan.strip())
-                    match = productos[productos["codigo_norm"].astype(str).eq(q)]
-                    if match.empty:
-                        match = productos[productos["codigo"].astype(str).str.lower().str.contains(scan.strip().lower(), na=False) | productos["nombre_producto"].astype(str).str.lower().str.contains(scan.strip().lower(), na=False)]
-                    if not match.empty:
-                        default_label = match.iloc[0]["label_pos"]
-                        labels = productos["label_pos"].tolist()
-                        if default_label in labels:
-                            default_idx = labels.index(default_label)
+                    q_raw = scan.strip()
+                    q = q_raw.lower()
+                    q_norm = normalize_code(q_raw)
+                    exact = productos[productos["codigo_norm"].astype(str).eq(q_norm)]
+                    similares = productos[
+                        productos["codigo_norm"].astype(str).str.lower().str.contains(q_norm.lower(), na=False) |
+                        productos["codigo"].astype(str).str.lower().str.contains(q, na=False) |
+                        productos["nombre_producto"].astype(str).str.lower().str.contains(q, na=False) |
+                        productos["marca"].astype(str).str.lower().str.contains(q, na=False) |
+                        productos["categoria"].astype(str).str.lower().str.contains(q, na=False)
+                    ]
+                    resultados = pd.concat([exact, similares]).drop_duplicates(subset=["id_producto"])
+                    if resultados.empty:
+                        st.warning("No se encontraron productos similares. Revisa el código o nombre escrito.")
                     else:
-                        st.info("No se encontró coincidencia exacta del código. Selecciona desde la lista.")
-                with st.form("form_add_pos_v261", clear_on_submit=False):
-                    labels = productos["label_pos"].tolist()
-                    sel = st.selectbox("Producto", labels, index=default_idx, key="pos_producto_select_v261")
-                    r = productos[productos["label_pos"].eq(sel)].iloc[0]
+                        st.caption(f"{len(resultados)} producto(s) encontrado(s). Elige uno de la lista.")
+
+                if not resultados.empty:
+                    labels = resultados["label_pos"].tolist()
+                    key_busqueda = normalize_code(scan) if scan.strip() else "todos"
+                    sel = st.selectbox("Productos similares encontrados", labels, index=0, key=f"pos_producto_select_v29_{key_busqueda}")
+                    r = resultados[resultados["label_pos"].eq(sel)].iloc[0]
                     stock = float(r.get("stock_actual") or 0)
                     candidates = product_image_candidates(r)
                     img = candidates[0] if candidates else ""
-                    img_html = f"<img class='preview-img' src='{esc(img)}' onerror=\"this.style.display='none'\">" if img else "<div class='preview-img'></div>"
+                    img_html = f"<img class='preview-img' src='{esc(img)}'>" if img else "<div class='preview-img'></div>"
                     st.markdown(f"""
                     <div class='preview-product'>
                       {img_html}
@@ -4973,27 +5002,28 @@ def page_ventas():
                     </div>
                     """, unsafe_allow_html=True)
                     a,b = st.columns(2)
+                    idp_actual = int(r['id_producto'])
                     with a:
-                        cantidad = st.number_input("Cantidad", min_value=1.0, max_value=max(stock,1.0), value=1.0, step=1.0, key="pos_cantidad_v261")
+                        cantidad = st.number_input("Cantidad", min_value=1.0, max_value=max(stock,1.0), value=1.0, step=1.0, key=f"pos_cantidad_v29_{idp_actual}")
                     with b:
                         precio_default = float(r.get("precio_venta") or 0)
-                        precio = st.number_input("Precio", min_value=0.0, value=precio_default, step=1.0, key="pos_precio_v261") if is_admin() else precio_default
+                        precio = st.number_input("Precio", min_value=0.0, value=precio_default, step=1.0, key=f"pos_precio_v29_{idp_actual}") if is_admin() else precio_default
                         if not is_admin():
-                            st.text_input("Precio", value=money(precio), disabled=True, key="pos_precio_view_v261")
+                            st.text_input("Precio", value=money(precio), disabled=True, key=f"pos_precio_view_v29_{idp_actual}")
                     st.markdown(f"<span class='chip chip-ok'>Stock {num(stock)}</span><span class='chip chip-dark'>Subtotal {money(float(cantidad)*float(precio))}</span>", unsafe_allow_html=True)
-                    add = st.form_submit_button("🛒 Agregar al carrito", type="primary", use_container_width=True)
-                if add:
-                    found = False
-                    for item in st.session_state.cart:
-                        if item["id_producto"] == int(r["id_producto"]):
-                            item["cantidad"] = min(float(item["cantidad"]) + float(cantidad), stock)
-                            item["precio"] = float(precio)
-                            found = True
-                            break
-                    if not found:
-                        st.session_state.cart.append({"id_producto": int(r["id_producto"]), "nombre": r["nombre_producto"], "codigo": r.get("codigo", ""), "precio": float(precio), "costo": float(r.get("costo_unitario") or 0), "stock": stock, "cantidad": float(cantidad)})
-                    st.toast("Producto agregado")
-                    st.rerun()
+                    add = st.button("🛒 Agregar al carrito", type="primary", use_container_width=True, key=f"btn_add_pos_v29_{idp_actual}")
+                    if add:
+                        found = False
+                        for item in st.session_state.cart:
+                            if item["id_producto"] == int(r["id_producto"]):
+                                item["cantidad"] = min(float(item["cantidad"]) + float(cantidad), stock)
+                                item["precio"] = float(precio)
+                                found = True
+                                break
+                        if not found:
+                            st.session_state.cart.append({"id_producto": int(r["id_producto"]), "nombre": r["nombre_producto"], "codigo": r.get("codigo", ""), "precio": float(precio), "costo": float(r.get("costo_unitario") or 0), "stock": stock, "cantidad": float(cantidad)})
+                        st.toast("Producto agregado")
+                        st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
         with right:
             st.markdown("<div class='pos-panel'><h3>🛒 Carrito</h3>", unsafe_allow_html=True)
