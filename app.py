@@ -28,7 +28,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V25.11 Inventario por categoría + créditos filtrados + comprobante consecutivo"
+APP_VERSION = "V27 PWA instalable básica"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -37,6 +37,81 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+
+# ============================================================
+# V27 PWA / APP INSTALABLE
+# ============================================================
+PWA_MANIFEST_URL = "./app/static/manifest.json"
+PWA_ICON_URL = "./app/static/icon-192.png"
+
+
+def inject_pwa_assets():
+    """Inyecta manifest e iconos para que Chrome/Edge puedan sugerir instalación.
+    En Streamlit Cloud los archivos se sirven desde /app/static/ con static serving activo.
+    """
+    try:
+        st.markdown(
+            f"""
+            <link rel="manifest" href="{PWA_MANIFEST_URL}">
+            <meta name="theme-color" content="#111827">
+            <link rel="apple-touch-icon" href="{PWA_ICON_URL}">
+            """,
+            unsafe_allow_html=True,
+        )
+        components.html(
+            f"""
+            <script>
+            (function() {{
+              try {{
+                const d = window.parent.document;
+                function upsert(tag, attr, value, attrs) {{
+                  let el = d.querySelector(tag + '[' + attr + '="' + value + '"]');
+                  if (!el) {{
+                    el = d.createElement(tag);
+                    el.setAttribute(attr, value);
+                    d.head.appendChild(el);
+                  }}
+                  for (const k in attrs) el.setAttribute(k, attrs[k]);
+                }}
+                upsert('link', 'rel', 'manifest', {{href: '{PWA_MANIFEST_URL}'}});
+                upsert('link', 'rel', 'apple-touch-icon', {{href: '{PWA_ICON_URL}'}});
+                let theme = d.querySelector('meta[name="theme-color"]');
+                if (!theme) {{ theme = d.createElement('meta'); theme.setAttribute('name','theme-color'); d.head.appendChild(theme); }}
+                theme.setAttribute('content', '#111827');
+                let desc = d.querySelector('meta[name="description"]');
+                if (!desc) {{ desc = d.createElement('meta'); desc.setAttribute('name','description'); d.head.appendChild(desc); }}
+                desc.setAttribute('content', 'Clomar Store POS: ventas, inventario, caja, créditos y reportes.');
+              }} catch(e) {{ console.log('PWA inject fallback', e); }}
+            }})();
+            </script>
+            """,
+            height=0,
+        )
+    except Exception:
+        pass
+
+
+inject_pwa_assets()
+
+
+# Ajustes móviles V27: reduce anchos, tarjetas y botones cuando se abre como app en celular.
+st.markdown("""
+<style>
+@media (max-width: 760px) {
+  .block-container { padding-left: .75rem !important; padding-right: .75rem !important; padding-top: .75rem !important; }
+  .hero, .card { border-radius: 16px !important; }
+  .metric-card h1, .metric-card .big, .kpi-value { font-size: 1.65rem !important; }
+  .product-grid, .catalog-grid { grid-template-columns: 1fr !important; gap: 12px !important; }
+  .product-card { padding: 12px !important; }
+  .product-img-wrap { height: 150px !important; }
+  .ticket-pro { max-width: 100% !important; }
+  div[data-testid="stHorizontalBlock"] { gap: .7rem !important; }
+  .stButton > button { min-height: 44px !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 # ============================================================
 # DB / CONFIG
@@ -1979,14 +2054,56 @@ def page_backup():
 
 
 def page_instalar_app():
-    hero("Instalar como app", "Crea un acceso directo en celular o laptop para abrir Clomar Store como aplicación.", "📲")
+    hero("Instalar como app", "Instala Clomar Store en celular o laptop sin Play Store ni App Store.", "📲")
+    cfg = cached_settings()
+    icon = cfg.get("icon_url") or cfg.get("logo_url") or "./app/static/icon-192.png"
+    st.markdown(f"""
+    <div class='card' style='display:grid;grid-template-columns:110px 1fr;gap:18px;align-items:center'>
+      <div style='width:92px;height:92px;border-radius:24px;background:#fff3f0;border:1px solid #f3d7d2;display:flex;align-items:center;justify-content:center;overflow:hidden'>
+        <img src='{esc(icon)}' style='max-width:76px;max-height:76px;object-fit:contain' onerror="this.style.display='none'">
+      </div>
+      <div>
+        <h2 style='margin:0 0 6px'>Clomar Store</h2>
+        <p style='margin:0;color:#64748b'>POS, inventario, caja, créditos y reportes en modo app instalable.</p>
+        <div style='margin-top:10px'><span class='chip chip-ok'>PWA básica V27</span><span class='chip chip-dark'>Android / Windows</span></div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("""
+        <div class='card'>
+          <h3>📱 Android / Chrome</h3>
+          <ol>
+            <li>Abre <b>Clomar Store</b> en Chrome.</li>
+            <li>Toca los tres puntos del navegador.</li>
+            <li>Elige <b>Agregar a pantalla principal</b> o <b>Instalar app</b>.</li>
+            <li>Confirma el nombre <b>Clomar Store</b>.</li>
+            <li>Abre el ícono desde la pantalla principal.</li>
+          </ol>
+          <p class='small-note'>Si no sale “Instalar app”, usa “Agregar a pantalla principal”.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with c2:
+        st.markdown("""
+        <div class='card'>
+          <h3>💻 Windows / Chrome o Edge</h3>
+          <ol>
+            <li>Abre la app en Chrome o Edge.</li>
+            <li>Menú de tres puntos.</li>
+            <li>Busca <b>Instalar esta página como app</b> o <b>Apps → Instalar</b>.</li>
+            <li>Confirma y abre Clomar Store como ventana independiente.</li>
+          </ol>
+          <p class='small-note'>Esto no requiere pagar Play Store ni App Store.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
     st.markdown("""
     <div class='card'>
-      <h3>Android / Chrome</h3>
-      <p>1. Abre la app en Chrome.<br>2. Toca los tres puntos.<br>3. Elige <b>Agregar a pantalla principal</b>.<br>4. Confirma el nombre Clomar Store.</p>
-      <h3>Windows / Chrome o Edge</h3>
-      <p>1. Abre la app en el navegador.<br>2. Menú de tres puntos.<br>3. Apps / Instalar este sitio como app.<br>4. Marca abrir como ventana.</p>
-      <p class='small-note'>Esto crea un acceso tipo app. No requiere Play Store ni instalación técnica.</p>
+      <h3>✅ Lista de prueba V27</h3>
+      <p>Después de instalar, verifica: login, ventas, carrito, caja, créditos, productos y reportes. En celular la vista debe acomodarse en una columna y no debe cortar los botones principales.</p>
+      <p><b>Nota:</b> Streamlit permite esta instalación básica como acceso tipo app. La PWA completa con trabajo offline total queda para una etapa posterior.</p>
     </div>
     """, unsafe_allow_html=True)
 
