@@ -12,8 +12,9 @@ import streamlit as st
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-APP_VERSION = "V30 Control real del negocio"
+APP_VERSION = "V29.2 Login limpio y visual suave"
 APP_NAME = "Clomar Store"
+BRAND_ICON_URL = "https://raw.githubusercontent.com/CLOMARstore/clomar-store/main/static/icon-512.png"
 
 # ============================================================
 # CONFIGURACIÓN GENERAL
@@ -356,7 +357,7 @@ st.markdown(
 <style>
 :root{
   --bg:#f5f7fb; --panel:#ffffff; --ink:#0f172a; --muted:#667085;
-  --brand:#111827; --accent:#f5c542; --green:#16a34a; --red:#dc2626; --line:#e5e7eb;
+  --brand:#111827; --accent:#f97316; --green:#16a34a; --red:#ea580c; --line:#e5e7eb;
 }
 .stApp { background: var(--bg); color: var(--ink); }
 .block-container { padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1500px; }
@@ -491,10 +492,22 @@ def login_screen():
 
     c1, c2, c3 = st.columns([1, 1.15, 1])
     with c2:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("Iniciar sesión")
-        usuario = st.text_input("Usuario", placeholder="admin o vendedor")
-        password = st.text_input("Contraseña", type="password", placeholder="Tu contraseña")
+        st.markdown(
+            f'''
+            <div class="login-brand">
+                <img src="{BRAND_ICON_URL}" alt="Clomar Store">
+                <div class="brand-text">
+                    <div class="brand-title">Clomar Store</div>
+                    <div class="brand-sub">POS • Inventario • Caja • Créditos</div>
+                </div>
+            </div>
+            ''',
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div class='card login-card'>", unsafe_allow_html=True)
+        st.subheader("Acceso seguro")
+        usuario = st.text_input("Usuario", placeholder="Ingresa tu usuario")
+        password = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña")
         if st.button("Entrar", type="primary", use_container_width=True):
             df = query_df("SELECT * FROM usuarios WHERE lower(usuario)=lower(:u) AND estado='Activo'", {"u": usuario.strip()})
             if not df.empty and verify_password(password, df.iloc[0]["password_hash"]):
@@ -508,7 +521,7 @@ def login_screen():
                 st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos.")
-        st.caption("Credenciales iniciales: admin/admin123 y vendedor/venta123. Cámbialas antes de uso real.")
+        st.caption("Acceso exclusivo para usuarios autorizados.")
         st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -604,30 +617,6 @@ def page_panel_dueno():
     with d: kpi("Caja neta", money(ingresos - egresos), f"Ingresos {money(ingresos)}")
 
     st.write("")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.subheader("Ventas por vendedor")
-        if not ventas.empty:
-            vend = ventas.groupby("vendedor_nombre", as_index=False)["total_venta"].sum().sort_values("total_venta", ascending=False)
-            st.bar_chart(vend.set_index("vendedor_nombre")["total_venta"])
-        else:
-            st.info("Sin datos.")
-    with c2:
-        st.subheader("Métodos de pago")
-        if not ventas.empty:
-            met = ventas.groupby("metodo_pago", as_index=False)["total_venta"].sum().sort_values("total_venta", ascending=False)
-            st.bar_chart(met.set_index("metodo_pago")["total_venta"])
-        else:
-            st.info("Sin datos.")
-    with c3:
-        st.subheader("Ventas por día")
-        if not ventas.empty:
-            ventas["dia"] = pd.to_datetime(ventas["fecha"]).dt.date
-            diario = ventas.groupby("dia", as_index=False)["total_venta"].sum().sort_values("dia")
-            st.line_chart(diario.set_index("dia")["total_venta"])
-        else:
-            st.info("Sin datos.")
-
     c1, c2 = st.columns([1.35, 1])
     with c1:
         st.subheader("Ventas recientes")
@@ -635,10 +624,8 @@ def page_panel_dueno():
             st.info("Todavía no hay ventas en el período.")
         else:
             vtab = ventas.copy()
-            vtab["fecha"] = vtab["fecha"].apply(fmt_dt_pe)
             vtab["total"] = vtab["total_venta"].apply(money)
-            vtab["saldo"] = vtab["saldo_pendiente"].apply(money)
-            html_table(vtab, ["comprobante", "fecha", "cliente", "vendedor_nombre", "metodo_pago", "estado_pago", "total", "saldo"], ["Comprobante", "Fecha", "Cliente", "Vendedor", "Pago", "Estado", "Total", "Saldo"], 12)
+            html_table(vtab, ["comprobante", "fecha", "cliente", "vendedor_nombre", "metodo_pago", "total"], ["Comprobante", "Fecha", "Cliente", "Vendedor", "Pago", "Total"], 12)
     with c2:
         st.subheader("Stock crítico")
         crit = productos[productos["stock_actual"] <= productos["stock_minimo"]].copy() if not productos.empty else pd.DataFrame()
@@ -650,6 +637,8 @@ def page_panel_dueno():
 
     st.subheader("Productos vendidos")
     if not detalle.empty:
+        fig = px.bar(detalle.head(10), x="producto", y="total_vendido", color="vendedor", title="Top productos por venta")
+        st.plotly_chart(fig, use_container_width=True)
         dtab = detalle.copy()
         dtab["total"] = dtab["total_vendido"].apply(money)
         dtab["utilidad_fmt"] = dtab["utilidad"].apply(money)
@@ -659,30 +648,28 @@ def page_panel_dueno():
 
 
 def page_ventas():
-    st.markdown("<div class='clomar-hero'><h1>🧾 Nueva venta</h1><p>Busca un producto, selecciónalo de la lista y registra el pago.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='clomar-hero'><h1>🧾 Nueva venta</h1><p>Busca productos, agrégalos al carrito y registra el pago.</p></div>", unsafe_allow_html=True)
     if "cart" not in st.session_state:
         st.session_state.cart = []
 
     productos = productos_con_stock()
     categorias = query_df("SELECT * FROM categorias WHERE estado='Activo' ORDER BY nombre_categoria")
-    col_main, col_cart = st.columns([1.55, 1])
+    col_main, col_cart = st.columns([1.8, 1])
 
     with col_main:
         s1, s2 = st.columns([2, 1])
         with s1:
-            buscar = st.text_input("Buscar producto", placeholder="Escribe nombre, código, marca o categoría...")
+            buscar = st.text_input("Buscar producto", placeholder="Nombre, código, marca...")
         with s2:
             cats = ["Todas"] + categorias["nombre_categoria"].tolist() if not categorias.empty else ["Todas"]
             cat = st.selectbox("Categoría", cats)
-
         fil = productos.copy()
         if buscar.strip():
             txt = buscar.lower().strip()
             fil = fil[
                 fil["nombre_producto"].astype(str).str.lower().str.contains(txt, na=False) |
                 fil["codigo"].astype(str).str.lower().str.contains(txt, na=False) |
-                fil["marca"].astype(str).str.lower().str.contains(txt, na=False) |
-                fil["categoria"].astype(str).str.lower().str.contains(txt, na=False)
+                fil["marca"].astype(str).str.lower().str.contains(txt, na=False)
             ]
         if cat != "Todas":
             fil = fil[fil["categoria"] == cat]
@@ -690,54 +677,34 @@ def page_ventas():
         if fil.empty:
             st.info("No hay productos que coincidan.")
         else:
-            fil = fil.head(25).copy()
-            opciones = []
-            mapa = {}
-            for _, r in fil.iterrows():
-                stock = float(r["stock_actual"] or 0)
-                label = f"{r['codigo']} · {r['nombre_producto']} · {r['categoria']} · Stock {num(stock)} · {money(r['precio_venta'])}"
-                opciones.append(label)
-                mapa[label] = r
-            seleccion = st.selectbox("Producto sugerido", opciones, index=0)
-            selected = mapa.get(seleccion)
-
-            if selected is not None:
-                stock = float(selected["stock_actual"] or 0)
-                chip = "chip-ok" if stock > float(selected["stock_minimo"] or 0) else "chip-red"
-                prev1, prev2 = st.columns([1, 1.2])
-                with prev1:
-                    img_url = str(selected.get("imagen_url", "") or "").strip()
-                    if img_url:
-                        st.image(img_url, use_container_width=True)
-                    else:
-                        st.markdown("<div class='card' style='min-height:240px;display:flex;align-items:center;justify-content:center;'>🛍️</div>", unsafe_allow_html=True)
-                with prev2:
+            cols = st.columns(3)
+            for i, (_, r) in enumerate(fil.head(60).iterrows()):
+                with cols[i % 3]:
+                    stock = float(r["stock_actual"] or 0)
+                    chip = "chip-ok" if stock > float(r["stock_minimo"] or 0) else "chip-red"
                     st.markdown(f"""
                     <div class="product-card">
-                        <div class="product-name">{selected['nombre_producto']}</div>
-                        <div class="product-meta">{selected.get('codigo','')} · {selected.get('categoria','')}</div>
-                        <div class="product-price">{money(selected['precio_venta'])}</div>
+                        <div class="product-name">{r['nombre_producto']}</div>
+                        <div class="product-meta">{r.get('codigo','')} · {r.get('categoria','')}</div>
+                        <div class="product-price">{money(r['precio_venta'])}</div>
                         <span class="chip {chip}">Stock {num(stock)}</span>
-                        <span class="chip chip-dark">Costo {money(selected['costo_unitario'])}</span>
                     </div>
                     """, unsafe_allow_html=True)
-                cantidad = st.number_input("Cantidad", min_value=1.0, max_value=max(stock, 1.0), step=1.0, value=1.0)
-                precio = st.number_input("Precio unitario", min_value=0.0, value=float(selected["precio_venta"] or 0), step=1.0)
-                if st.button("Agregar al carrito", type="primary", use_container_width=True, disabled=stock <= 0):
-                    item = {
-                        "id_producto": int(selected["id_producto"]), "nombre": selected["nombre_producto"],
-                        "cantidad": float(cantidad), "precio": float(precio),
-                        "costo": float(selected["costo_unitario"] or 0), "stock": stock
-                    }
-                    found = False
-                    for c in st.session_state.cart:
-                        if c["id_producto"] == item["id_producto"]:
-                            c["cantidad"] = min(float(c["cantidad"]) + float(cantidad), stock)
-                            c["precio"] = float(precio)
-                            found = True
-                    if not found:
-                        st.session_state.cart.append(item)
-                    st.rerun()
+                    if st.button("Agregar", key=f"add_{r['id_producto']}", use_container_width=True, disabled=stock <= 0):
+                        item = {
+                            "id_producto": int(r["id_producto"]), "nombre": r["nombre_producto"],
+                            "cantidad": 1.0, "precio": float(r["precio_venta"] or 0),
+                            "costo": float(r["costo_unitario"] or 0), "stock": stock
+                        }
+                        # Si ya está, aumenta cantidad.
+                        found = False
+                        for c in st.session_state.cart:
+                            if c["id_producto"] == item["id_producto"]:
+                                c["cantidad"] = min(float(c["cantidad"]) + 1, stock)
+                                found = True
+                        if not found:
+                            st.session_state.cart.append(item)
+                        st.rerun()
 
     with col_cart:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -782,12 +749,11 @@ def page_ventas():
                     st.error("El total debe ser mayor a cero.")
                 else:
                     u = current_user()
-                    venta_num = int(scalar("SELECT COALESCE(COUNT(*),0)+1 FROM ventas"))
-                    comprobante = f"B{venta_num:04d}"
+                    comprobante = f"V{datetime.now().strftime('%Y%m%d%H%M%S')}"
                     estado_pago = "Pagada" if saldo <= 0 else ("Parcial" if monto_pagado > 0 else "Pendiente")
                     try:
                         with ENGINE.begin() as conn:
-                            conn.execute(text("""
+                            res = conn.execute(text("""
                                 INSERT INTO ventas (comprobante, id_cliente, id_usuario, vendedor_nombre, metodo_pago, total_venta, monto_pagado, saldo_pendiente, estado_pago, observacion)
                                 VALUES (:comp, :cli, :uid, :vend, :metodo, :total, :pagado, :saldo, :estado, :obs)
                             """), {"comp": comprobante, "cli": opciones_cliente[cliente_nombre], "uid": u["id_usuario"], "vend": u["nombre"], "metodo": metodo_pago, "total": total, "pagado": monto_pagado, "saldo": saldo, "estado": estado_pago, "obs": observacion})
@@ -839,78 +805,71 @@ def page_productos():
         if fil.empty:
             st.info("No hay productos.")
         else:
-            cols = st.columns(5)
-            for i, (_, r) in enumerate(fil.head(50).iterrows()):
-                with cols[i % 5]:
+            cols = st.columns(4)
+            for i, (_, r) in enumerate(fil.iterrows()):
+                with cols[i % 4]:
                     stock = float(r["stock_actual"] or 0)
-                    chip = "chip-ok" if stock > float(r["stock_minimo"] or 0) else "chip-red"
-                    img = str(r.get("imagen_url", "") or "").strip()
-                    if img:
-                        st.image(img, use_container_width=True)
+                    chips = f"<span class='chip chip-ok'>Stock {num(stock)}</span>" if stock > float(r["stock_minimo"] or 0) else f"<span class='chip chip-red'>Stock {num(stock)}</span>"
+                    costo = f"<span class='chip chip-dark'>Costo {money(r['costo_unitario'])}</span>" if is_admin() else ""
                     st.markdown(f"""
-                    <div class="product-card" style="padding:12px;">
-                        <div class="product-name" style="min-height:36px;font-size:15px;">{r['nombre_producto']}</div>
-                        <div class="product-meta">{r.get('codigo','')} · {r.get('categoria','')}</div>
-                        <div class="product-price" style="font-size:20px;">{money(r['precio_venta'])}</div>
-                        <span class="chip {chip}">Stock {num(stock)}</span>
+                    <div class='product-card'>
+                      <div class='product-name'>📦 {r['nombre_producto']}</div>
+                      <div class='product-meta'>{r.get('codigo','')} · {r.get('categoria','')}</div>
+                      <div class='product-price'>{money(r['precio_venta'])}</div>
+                      {chips}{costo}
                     </div>
                     """, unsafe_allow_html=True)
-                    if is_admin():
-                        st.caption(f"Costo {money(r['costo_unitario'])}")
     with tab2:
+        if not is_admin():
+            st.warning("Solo administrador puede crear o editar productos.")
+            return
         with st.form("form_producto"):
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                codigo = st.text_input("Código")
-                nombre = st.text_input("Nombre")
-                categoria = st.selectbox("Categoría", ["Sin categoría"] + (categorias["nombre_categoria"].tolist() if not categorias.empty else []))
-            with c2:
+            st.subheader("Nuevo producto")
+            a, b = st.columns(2)
+            with a:
+                codigo = st.text_input("Código", placeholder="SKU o código interno")
+                nombre = st.text_input("Nombre del producto")
                 marca = st.text_input("Marca")
-                unidad = st.text_input("Unidad", value="Unidad")
-                stock_minimo = st.number_input("Stock mínimo", min_value=0.0, step=1.0)
-            with c3:
-                costo = st.number_input("Costo", min_value=0.0, step=1.0)
-                precio = st.number_input("Precio", min_value=0.0, step=1.0)
-                imagen_url = st.text_input("Imagen URL", placeholder="URL directa de imagen (opcional)")
-            if st.form_submit_button("Guardar producto", type="primary", use_container_width=True):
+                unidad = st.selectbox("Unidad", ["Unidad", "Par", "Caja", "Docena", "Metro", "Kilo", "Litro", "Paquete"])
+            with b:
+                cat_opts = {r["nombre_categoria"]: int(r["id_categoria"]) for _, r in categorias.iterrows()} if not categorias.empty else {}
+                categoria = st.selectbox("Categoría", list(cat_opts.keys()) if cat_opts else ["Sin categoría"])
+                costo = st.number_input("Costo unitario", min_value=0.0, step=1.0)
+                precio = st.number_input("Precio de venta", min_value=0.0, step=1.0)
+                stock_min = st.number_input("Stock mínimo", min_value=0.0, step=1.0)
+                stock_ini = st.number_input("Stock inicial / ingreso inicial", min_value=0.0, step=1.0)
+            submitted = st.form_submit_button("Guardar producto", type="primary", use_container_width=True)
+            if submitted:
                 if not nombre.strip():
                     st.error("Ingresa el nombre del producto.")
                 else:
-                    id_cat = None
-                    if categoria != "Sin categoría":
-                        row = query_df("SELECT id_categoria FROM categorias WHERE nombre_categoria=:n", {"n": categoria})
-                        if row.empty:
-                            exec_sql("INSERT INTO categorias (nombre_categoria, estado) VALUES (:n,'Activo')", {"n": categoria})
-                            row = query_df("SELECT id_categoria FROM categorias WHERE nombre_categoria=:n", {"n": categoria})
-                        id_cat = int(row.iloc[0]["id_categoria"])
-                    existing = query_df("SELECT id_producto FROM productos WHERE codigo=:c", {"c": codigo.strip()}) if codigo.strip() else pd.DataFrame()
+                    u = current_user()
+                    codigo_final = codigo.strip() or f"P{datetime.now().strftime('%Y%m%d%H%M%S')}"
                     try:
-                        if not existing.empty:
-                            exec_sql("""
-                                UPDATE productos
-                                SET nombre_producto=:n, id_categoria=:cat, marca=:m, unidad=:u, costo_unitario=:co, precio_venta=:pr, stock_minimo=:sm, imagen_url=:img, actualizado_en=CURRENT_TIMESTAMP
-                                WHERE id_producto=:id
-                            """, {"n": nombre.strip(), "cat": id_cat, "m": marca, "u": unidad, "co": costo, "pr": precio, "sm": stock_minimo, "img": imagen_url, "id": int(existing.iloc[0]["id_producto"])})
-                            st.success("Producto actualizado.")
-                        else:
-                            exec_sql("""
-                                INSERT INTO productos (codigo, nombre_producto, id_categoria, marca, unidad, costo_unitario, precio_venta, stock_minimo, imagen_url, estado)
-                                VALUES (:c,:n,:cat,:m,:u,:co,:pr,:sm,:img,'Activo')
-                            """, {"c": codigo.strip() or None, "n": nombre.strip(), "cat": id_cat, "m": marca, "u": unidad, "co": costo, "pr": precio, "sm": stock_minimo, "img": imagen_url})
-                            st.success("Producto creado.")
+                        with ENGINE.begin() as conn:
+                            conn.execute(text("""
+                                INSERT INTO productos (codigo, nombre_producto, id_categoria, marca, unidad, costo_unitario, precio_venta, stock_minimo, estado)
+                                VALUES (:codigo, :nombre, :cat, :marca, :unidad, :costo, :precio, :stock_min, 'Activo')
+                            """), {"codigo": codigo_final, "nombre": nombre.strip(), "cat": cat_opts.get(categoria), "marca": marca, "unidad": unidad, "costo": costo, "precio": precio, "stock_min": stock_min})
+                            idp = conn.execute(text("SELECT id_producto FROM productos WHERE codigo=:codigo"), {"codigo": codigo_final}).scalar()
+                            if stock_ini > 0:
+                                conn.execute(text("""
+                                    INSERT INTO movimientos_stock (id_producto, tipo, cantidad, costo_unitario, referencia, id_usuario, observacion)
+                                    VALUES (:idp, 'MIGRACION_INICIAL', :cant, :costo, 'Stock inicial', :uid, 'Alta de producto')
+                                """), {"idp": int(idp), "cant": stock_ini, "costo": costo, "uid": u["id_usuario"]})
+                        st.success("Producto creado correctamente.")
                         st.rerun()
                     except Exception as e:
-                        st.error("No se pudo guardar el producto.")
+                        st.error("No se pudo crear el producto. Revisa si el código ya existe.")
                         st.exception(e)
 
 
 def page_inventario():
-    st.markdown("<div class='clomar-hero'><h1>📊 Inventario</h1><p>Stock actual, categorías, valorización y movimientos recientes.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='clomar-hero'><h1>📊 Inventario</h1><p>Stock actual, stock crítico y valorización.</p></div>", unsafe_allow_html=True)
     productos = productos_con_stock()
     if productos.empty:
         st.info("No hay productos registrados.")
         return
-
     total_costo = (productos["stock_actual"] * productos["costo_unitario"]).sum()
     total_venta = (productos["stock_actual"] * productos["precio_venta"]).sum()
     criticos = productos[productos["stock_actual"] <= productos["stock_minimo"]]
@@ -918,45 +877,14 @@ def page_inventario():
     with a: kpi("Valor stock costo", money(total_costo), "Solo administrador")
     with b: kpi("Valor stock venta", money(total_venta), "Potencial de venta")
     with c: kpi("Productos críticos", str(len(criticos)), "Stock bajo o cero")
-
-    categorias = ["Todas"] + sorted([x for x in productos["categoria"].dropna().astype(str).unique().tolist() if x])
-    tabs = st.tabs(categorias)
-    for tab, cat in zip(tabs, categorias):
-        with tab:
-            fil = productos if cat == "Todas" else productos[productos["categoria"] == cat]
-            st.caption(f"{len(fil)} productos")
-            if not fil.empty:
-                tab_df = fil.copy()
-                tab_df["precio"] = tab_df["precio_venta"].apply(money)
-                tab_df["costo"] = tab_df["costo_unitario"].apply(money)
-                cols = ["codigo", "nombre_producto", "stock_actual", "stock_minimo", "precio"]
-                heads = ["Código", "Producto", "Stock", "Mínimo", "Precio"]
-                if is_admin():
-                    cols.insert(-1, "costo"); heads.insert(-1, "Costo")
-                html_table(tab_df, cols, heads, 200)
-
-    st.subheader("Últimos movimientos de stock")
-    d1, d2 = st.columns(2)
-    with d1:
-        mov_desde = st.date_input("Desde", date.today()-timedelta(days=7), key="mov_desde")
-    with d2:
-        mov_hasta = st.date_input("Hasta", date.today(), key="mov_hasta")
-    movimientos = query_df(
-        """SELECT ms.fecha, p.codigo, p.nombre_producto AS producto, ms.tipo, ms.cantidad, ms.costo_unitario, ms.referencia, ms.observacion
-           FROM movimientos_stock ms
-           LEFT JOIN productos p ON p.id_producto = ms.id_producto
-           WHERE date(ms.fecha) BETWEEN :d AND :h
-           ORDER BY ms.fecha DESC
-        """,
-        {"d": str(mov_desde), "h": str(mov_hasta)},
-    )
-    if movimientos.empty:
-        st.info("No hay movimientos en ese rango.")
-    else:
-        movimientos = movimientos.head(100).copy()
-        movimientos["fecha"] = movimientos["fecha"].apply(fmt_dt_pe)
-        movimientos["costo"] = movimientos["costo_unitario"].apply(money)
-        html_table(movimientos, ["fecha", "codigo", "producto", "tipo", "cantidad", "costo", "referencia"], ["Fecha", "Código", "Producto", "Tipo", "Cant.", "Costo", "Ref"], 100)
+    tab = productos.copy()
+    tab["precio"] = tab["precio_venta"].apply(money)
+    tab["costo"] = tab["costo_unitario"].apply(money)
+    cols = ["codigo", "nombre_producto", "categoria", "stock_actual", "stock_minimo", "precio"]
+    heads = ["Código", "Producto", "Categoría", "Stock", "Mínimo", "Precio"]
+    if is_admin():
+        cols.insert(-1, "costo"); heads.insert(-1, "Costo")
+    html_table(tab, cols, heads, 300)
 
 
 def page_ingreso_mercaderia():
@@ -969,23 +897,16 @@ def page_ingreso_mercaderia():
         st.info("Crea productos antes de registrar mercadería.")
         return
     with st.form("form_compra"):
-        c1, c2 = st.columns(2)
-        with c1:
-            proveedor = st.text_input("Proveedor", placeholder="Nombre del proveedor")
-            producto_label = st.selectbox("Producto", [f"{r['id_producto']} - {r['nombre_producto']} | Stock {num(r['stock_actual'])}" for _, r in productos.iterrows()])
-            idp = int(producto_label.split(" - ")[0])
-            cantidad = st.number_input("Cantidad", min_value=0.0, step=1.0)
-            costo = st.number_input("Costo unitario", min_value=0.0, step=1.0)
-        with c2:
-            metodo = st.selectbox("Método de pago", ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Crédito"])
-            total = cantidad * costo
-            pagado_default = float(total if metodo != "Crédito" else 0)
-            pagado = st.number_input("Monto pagado", min_value=0.0, value=pagado_default, step=1.0)
-            obs = st.text_area("Observación")
-            saldo = max(total - pagado, 0)
-            estado = "Pagada" if saldo <= 0 else ("Parcial" if pagado > 0 else "Pendiente")
-            st.markdown(f"### Total compra: {money(total)} · Saldo: {money(saldo)}")
-            st.caption(f"Estado: {estado}")
+        proveedor = st.text_input("Proveedor", placeholder="Nombre del proveedor")
+        producto_label = st.selectbox("Producto", [f"{r['id_producto']} - {r['nombre_producto']} | Stock {num(r['stock_actual'])}" for _, r in productos.iterrows()])
+        idp = int(producto_label.split(" - ")[0])
+        cantidad = st.number_input("Cantidad", min_value=0.0, step=1.0)
+        costo = st.number_input("Costo unitario", min_value=0.0, step=1.0)
+        total = cantidad * costo
+        metodo = st.selectbox("Método de pago", ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Crédito"])
+        pagado = st.number_input("Monto pagado", min_value=0.0, value=float(total if metodo != "Crédito" else 0), step=1.0)
+        obs = st.text_area("Observación")
+        st.markdown(f"### Total compra: {money(total)} · Saldo: {money(max(total-pagado,0))}")
         if st.form_submit_button("Registrar ingreso", type="primary", use_container_width=True):
             if cantidad <= 0:
                 st.error("La cantidad debe ser mayor a cero.")
@@ -1053,128 +974,22 @@ def page_clientes():
                 """, unsafe_allow_html=True)
 
 
-def page_creditos():
-    st.markdown("<div class='clomar-hero'><h1>💳 Créditos</h1><p>Control por cliente, por comprobante y abonos parciales.</p></div>", unsafe_allow_html=True)
-    if not is_admin():
-        st.warning("Solo administrador puede ver créditos.")
-        return
-
-    ventas = query_df("""
-        SELECT v.id_venta, v.comprobante, v.fecha, v.total_venta, v.monto_pagado, v.saldo_pendiente, v.estado_pago,
-               v.metodo_pago, v.vendedor_nombre, COALESCE(c.nombre_cliente,'Cliente general') AS cliente,
-               COALESCE(c.telefono,'') AS telefono
-        FROM ventas v
-        LEFT JOIN clientes c ON c.id_cliente = v.id_cliente
-        WHERE COALESCE(v.anulada,0)=0 AND COALESCE(v.saldo_pendiente,0) > 0
-        ORDER BY v.fecha DESC
-    """)
-    clientes = query_df("SELECT id_cliente, nombre_cliente FROM clientes ORDER BY nombre_cliente")
-
-    c1, c2, c3 = st.columns(3)
-    with c1: kpi("Créditos pendientes", money(ventas['saldo_pendiente'].sum() if not ventas.empty else 0), f"{len(ventas)} comprobantes")
-    with c2: kpi("Clientes con deuda", str(ventas['cliente'].nunique() if not ventas.empty else 0), "Resumen general")
-    with c3: kpi("Ventas a crédito", money(ventas['total_venta'].sum() if not ventas.empty else 0), "Total vendido pendiente")
-
-    st.subheader("Pendientes por cliente")
-    cliente_filtro = st.selectbox("Filtrar cliente", ["Todos"] + (clientes['nombre_cliente'].tolist() if not clientes.empty else []))
-    credito_filtro = ventas.copy()
-    if cliente_filtro != "Todos":
-        credito_filtro = credito_filtro[credito_filtro['cliente'] == cliente_filtro]
-    if credito_filtro.empty:
-        st.info("No hay créditos pendientes con ese filtro.")
-    else:
-        credito_filtro['fecha'] = credito_filtro['fecha'].apply(fmt_dt_pe)
-        credito_filtro['total'] = credito_filtro['total_venta'].apply(money)
-        credito_filtro['pagado'] = credito_filtro['monto_pagado'].apply(money)
-        credito_filtro['saldo'] = credito_filtro['saldo_pendiente'].apply(money)
-        html_table(credito_filtro, ['comprobante','fecha','cliente','telefono','vendedor_nombre','metodo_pago','total','pagado','saldo','estado_pago'], ['Comprobante','Fecha','Cliente','Teléfono','Vendedor','Pago','Total','Pagado','Saldo','Estado'], 100)
-
-    st.subheader("Registrar abono")
-    if ventas.empty:
-        st.info("No hay saldos pendientes.")
-        return
-    with st.form("form_abono_credito"):
-        opc = [f"{r['comprobante']} · {r['cliente']} · Saldo {money(r['saldo_pendiente'])}" for _, r in ventas.iterrows()]
-        sel = st.selectbox("Venta pendiente", opc)
-        vrow = ventas.iloc[opc.index(sel)]
-        monto = st.number_input("Monto a abonar", min_value=0.0, step=1.0, max_value=float(vrow['saldo_pendiente']))
-        metodo = st.selectbox("Método de abono", ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta"])
-        obs = st.text_area("Observación")
-        st.markdown(f"**Saldo actual:** {money(vrow['saldo_pendiente'])}")
-        if st.form_submit_button("Registrar abono", type="primary", use_container_width=True):
-            if monto <= 0:
-                st.error("El monto debe ser mayor a cero.")
-            else:
-                nuevo_pagado = float(vrow['monto_pagado']) + float(monto)
-                nuevo_saldo = max(float(vrow['total_venta']) - nuevo_pagado, 0)
-                nuevo_estado = "Pagada" if nuevo_saldo <= 0 else "Parcial"
-                with ENGINE.begin() as conn:
-                    conn.execute(text("""
-                        UPDATE ventas SET monto_pagado=:pag, saldo_pendiente=:saldo, estado_pago=:estado
-                        WHERE id_venta=:idv
-                    """), {"pag": nuevo_pagado, "saldo": nuevo_saldo, "estado": nuevo_estado, "idv": int(vrow['id_venta'])})
-                    u = current_user()
-                    conn.execute(text("""
-                        INSERT INTO caja (tipo, concepto, metodo_pago, monto, referencia, id_usuario, observacion)
-                        VALUES ('Ingreso', :concepto, :metodo, :monto, :ref, :uid, :obs)
-                    """), {"concepto": f"Abono crédito {vrow['comprobante']}", "metodo": metodo, "monto": monto, "ref": vrow['comprobante'], "uid": u['id_usuario'], "obs": obs})
-                st.success("Abono registrado.")
-                st.rerun()
-
 def page_caja():
     st.markdown("<div class='clomar-hero'><h1>💰 Caja</h1><p>Movimientos, ingresos, egresos y cierre del día.</p></div>", unsafe_allow_html=True)
     if not is_admin():
         st.warning("Solo administrador puede ver caja.")
         return
     f = st.date_input("Fecha", date.today())
-    tipo_f = st.selectbox("Tipo", ["Todos", "Ingreso", "Egreso"], index=0)
-    metodo_f = st.selectbox("Método", ["Todos", "Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Crédito"], index=0)
     caja = query_df("SELECT * FROM caja WHERE date(fecha)=:f AND COALESCE(anulada,0)=0 ORDER BY fecha DESC", {"f": str(f)})
-    if caja.empty:
-        st.info("No hay movimientos en la fecha.")
-        ingresos = egresos = 0
-    else:
-        if tipo_f != "Todos":
-            caja = caja[caja["tipo"].astype(str).str.lower().eq(tipo_f.lower())]
-        if metodo_f != "Todos":
-            caja = caja[caja["metodo_pago"].astype(str).str.lower().eq(metodo_f.lower())]
-        ingresos = caja[caja["tipo"].astype(str).str.lower().eq("ingreso")]["monto"].sum() if not caja.empty else 0
-        egresos = caja[caja["tipo"].astype(str).str.lower().eq("egreso")]["monto"].sum() if not caja.empty else 0
-
-    a,b,c,d = st.columns(4)
+    ingresos = caja[caja["tipo"].astype(str).str.lower().eq("ingreso")]["monto"].sum() if not caja.empty else 0
+    egresos = caja[caja["tipo"].astype(str).str.lower().eq("egreso")]["monto"].sum() if not caja.empty else 0
+    a,b,c = st.columns(3)
     with a: kpi("Ingresos", money(ingresos))
     with b: kpi("Egresos", money(egresos))
     with c: kpi("Saldo neto", money(ingresos-egresos))
-    with d: kpi("Movimientos", str(len(caja) if not caja.empty else 0))
-
     if not caja.empty:
-        resumen_met = caja.groupby("metodo_pago", as_index=False)["monto"].sum().sort_values("monto", ascending=False)
-        c1, c2 = st.columns([1, 1.2])
-        with c1:
-            st.subheader("Resumen por método")
-            st.bar_chart(resumen_met.set_index("metodo_pago")["monto"])
-        with c2:
-            st.subheader("Movimientos del día")
-            ctab = caja.copy()
-            ctab["fecha"] = ctab["fecha"].apply(fmt_dt_pe)
-            ctab["monto_fmt"] = ctab["monto"].apply(money)
-            html_table(ctab, ["fecha", "tipo", "concepto", "metodo_pago", "monto_fmt", "referencia"], ["Fecha", "Tipo", "Concepto", "Pago", "Monto", "Ref"], 200)
-    with st.expander("Cierre diario"):
-        with st.form("form_cierre"):
-            m_inicial = st.number_input("Monto inicial", min_value=0.0, step=1.0, value=0.0)
-            contado = st.number_input("Efectivo contado físico", min_value=0.0, step=1.0, value=0.0)
-            obs = st.text_area("Observación cierre")
-            efectivo_esperado = max(float(ingresos) - float(egresos) + float(m_inicial), 0)
-            diferencia = float(contado) - efectivo_esperado
-            st.markdown(f"**Efectivo esperado:** {money(efectivo_esperado)} · **Diferencia:** {money(diferencia)}")
-            if st.form_submit_button("Guardar cierre diario", type="primary"):
-                u = current_user()
-                exec_sql("""
-                    INSERT INTO cierres_caja (fecha, hora, id_usuario, monto_inicial, efectivo_esperado, efectivo_contado, diferencia, observacion)
-                    VALUES (:f, :h, :u, :mi, :ee, :ec, :dif, :obs)
-                """, {"f": str(f), "h": now_peru().strftime("%I:%M %p"), "u": u["id_usuario"], "mi": m_inicial, "ee": efectivo_esperado, "ec": contado, "dif": diferencia, "obs": obs})
-                st.success("Cierre diario guardado.")
-                st.rerun()
+        ctab = caja.copy(); ctab["monto_fmt"] = ctab["monto"].apply(money)
+        html_table(ctab, ["fecha", "tipo", "concepto", "metodo_pago", "monto_fmt", "referencia"], ["Fecha", "Tipo", "Concepto", "Pago", "Monto", "Ref"], 200)
     with st.expander("Registrar egreso / salida"):
         with st.form("form_egreso"):
             concepto = st.text_input("Concepto")
@@ -1188,75 +1003,32 @@ def page_caja():
 
 
 def page_reportes():
-    st.markdown("<div class='clomar-hero'><h1>📈 Reportes</h1><p>Ventas por vendedor, métodos de pago, días y comprobantes.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='clomar-hero'><h1>📈 Reportes</h1><p>Ventas por fecha, vendedor, producto y método de pago.</p></div>", unsafe_allow_html=True)
     if not is_admin():
         st.warning("Solo administrador puede ver reportes.")
         return
-    c1,c2 = st.columns(2)
+    c1,c2=st.columns(2)
     with c1: desde=st.date_input("Desde", date.today()-timedelta(days=7), key="rep_d")
     with c2: hasta=st.date_input("Hasta", date.today(), key="rep_h")
-    ventas=ventas_periodo(desde,hasta)
-    detalle=detalle_productos_vendidos(desde,hasta)
+    ventas=ventas_periodo(desde,hasta); detalle=detalle_productos_vendidos(desde,hasta)
     if ventas.empty:
         st.info("No hay ventas en el rango.")
         return
-    vendedor_f = st.selectbox("Vendedor", ["Todos"] + sorted(ventas["vendedor_nombre"].fillna("Sin vendedor").astype(str).unique().tolist()))
-    metodo_f = st.selectbox("Método de pago", ["Todos"] + sorted(ventas["metodo_pago"].fillna("Sin método").astype(str).unique().tolist()))
-    estado_f = st.selectbox("Estado", ["Todos", "Pagada", "Parcial", "Pendiente", "Anulada"])
-    cliente_f = st.text_input("Cliente / comprobante", placeholder="Busca por cliente o comprobante")
-
-    fil = ventas.copy()
-    if vendedor_f != "Todos":
-        fil = fil[fil["vendedor_nombre"].astype(str) == vendedor_f]
-    if metodo_f != "Todos":
-        fil = fil[fil["metodo_pago"].astype(str) == metodo_f]
-    if estado_f != "Todos":
-        fil = fil[fil["estado_pago"].astype(str) == estado_f]
-    if cliente_f.strip():
-        q = cliente_f.lower().strip()
-        fil = fil[fil["cliente"].astype(str).str.lower().str.contains(q, na=False) | fil["comprobante"].astype(str).str.lower().str.contains(q, na=False)]
-
-    total_ventas = fil["total_venta"].sum() if not fil.empty else 0
-    total_pagado = fil["monto_pagado"].sum() if not fil.empty else 0
-    total_saldo = fil["saldo_pendiente"].sum() if not fil.empty else 0
-    utilidad = detalle["utilidad"].sum() if not detalle.empty else 0
-
-    a,b,c,d = st.columns(4)
-    with a: kpi("Ventas", money(total_ventas), f"{len(fil)} comprobantes")
-    with b: kpi("Cobrado", money(total_pagado), "Ingresos confirmados")
-    with c: kpi("Crédito pendiente", money(total_saldo), "Saldo por cobrar")
-    with d: kpi("Utilidad estimada", money(utilidad), "Según costo registrado")
-
-    if not fil.empty:
-        fil["dia"] = pd.to_datetime(fil["fecha"]).dt.date
-        v1, v2, v3 = st.columns(3)
-        with v1:
-            st.subheader("Ventas por vendedor")
-            vend = fil.groupby("vendedor_nombre", as_index=False)["total_venta"].sum().sort_values("total_venta", ascending=False)
-            st.bar_chart(vend.set_index("vendedor_nombre")["total_venta"])
-        with v2:
-            st.subheader("Métodos de pago")
-            met = fil.groupby("metodo_pago", as_index=False)["total_venta"].sum().sort_values("total_venta", ascending=False)
-            st.bar_chart(met.set_index("metodo_pago")["total_venta"])
-        with v3:
-            st.subheader("Ventas por día")
-            diario = fil.groupby("dia", as_index=False)["total_venta"].sum().sort_values("dia")
-            st.line_chart(diario.set_index("dia")["total_venta"])
-
-        st.subheader("Detalle de comprobantes")
-        fil = fil.copy()
-        fil["fecha"] = fil["fecha"].apply(fmt_dt_pe)
-        fil["total"] = fil["total_venta"].apply(money)
-        fil["pagado"] = fil["monto_pagado"].apply(money)
-        fil["saldo"] = fil["saldo_pendiente"].apply(money)
-        html_table(fil, ["comprobante", "fecha", "cliente", "vendedor_nombre", "metodo_pago", "estado_pago", "total", "pagado", "saldo"], ["Comprobante", "Fecha", "Cliente", "Vendedor", "Pago", "Estado", "Total", "Pagado", "Saldo"], 100)
-
-        st.subheader("Detalle de productos vendidos")
-        detalle_fil = detalle.copy()
-        if not detalle_fil.empty:
-            detalle_fil["total"] = detalle_fil["total_vendido"].apply(money)
-            detalle_fil["utilidad_fmt"] = detalle_fil["utilidad"].apply(money)
-            html_table(detalle_fil, ["vendedor","producto","cantidad","total","utilidad_fmt"], ["Vendedor","Producto","Cantidad","Total","Utilidad"], 100)
+    ventas["dia"] = pd.to_datetime(ventas["fecha"]).dt.date
+    diario = ventas.groupby("dia", as_index=False)["total_venta"].sum()
+    fig = px.line(diario, x="dia", y="total_venta", markers=True, title="Ventas por día")
+    st.plotly_chart(fig, use_container_width=True)
+    a,b=st.columns(2)
+    with a:
+        metodo = ventas.groupby("metodo_pago", as_index=False)["total_venta"].sum()
+        st.plotly_chart(px.pie(metodo, names="metodo_pago", values="total_venta", title="Métodos de pago"), use_container_width=True)
+    with b:
+        vendedor = ventas.groupby("vendedor_nombre", as_index=False)["total_venta"].sum()
+        st.plotly_chart(px.bar(vendedor, x="vendedor_nombre", y="total_venta", title="Ventas por vendedor"), use_container_width=True)
+    if not detalle.empty:
+        detalle["total"] = detalle["total_vendido"].apply(money)
+        detalle["utilidad_fmt"] = detalle["utilidad"].apply(money)
+        html_table(detalle, ["vendedor","producto","cantidad","total","utilidad_fmt"], ["Vendedor","Producto","Cantidad","Total","Utilidad"], 100)
 
 
 def page_usuarios():
@@ -1320,15 +1092,12 @@ def sidebar_nav():
     u = current_user()
     st.sidebar.markdown(f"### 🛍️ {APP_NAME}")
     st.sidebar.caption(f"{u['nombre']} · {u['rol']}")
-    st.sidebar.markdown("**Gestionar tu negocio**")
     if is_admin():
         opciones = [
-            "📊 Panel dueño", "🧾 Ventas", "💳 Créditos", "💰 Caja", "📈 Reportes",
-            "📦 Productos", "📊 Inventario", "📥 Ingreso mercadería",
-            "👥 Clientes", "🔐 Usuarios", "💾 Backup", "☁️ Estado nube"
+            "📊 Panel dueño", "🧾 Ventas", "📦 Productos", "📊 Inventario", "📥 Ingreso mercadería", "👥 Clientes", "💰 Caja", "📈 Reportes", "🔐 Usuarios", "💾 Backup", "☁️ Estado nube"
         ]
     else:
-        opciones = ["🧾 Ventas", "💳 Créditos", "👥 Clientes", "📦 Productos"]
+        opciones = ["🧾 Ventas", "👥 Clientes", "📦 Productos"]
     selected = st.sidebar.radio("Menú", opciones, label_visibility="collapsed")
     st.sidebar.divider()
     if st.sidebar.button("Cerrar sesión", use_container_width=True):
@@ -1343,13 +1112,12 @@ else:
     selected = sidebar_nav()
     if selected == "📊 Panel dueño": page_panel_dueno()
     elif selected == "🧾 Ventas": page_ventas()
-    elif selected == "💳 Créditos": page_creditos()
-    elif selected == "💰 Caja": page_caja()
-    elif selected == "📈 Reportes": page_reportes()
     elif selected == "📦 Productos": page_productos()
     elif selected == "📊 Inventario": page_inventario()
     elif selected == "📥 Ingreso mercadería": page_ingreso_mercaderia()
     elif selected == "👥 Clientes": page_clientes()
+    elif selected == "💰 Caja": page_caja()
+    elif selected == "📈 Reportes": page_reportes()
     elif selected == "🔐 Usuarios": page_usuarios()
     elif selected == "💾 Backup": page_backup()
     elif selected == "☁️ Estado nube": page_configuracion()
