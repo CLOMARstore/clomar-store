@@ -28,7 +28,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V29 POS móvil rápido - correcciones"
+APP_VERSION = "V29.1 POS rápido sin lag - buscador desplegable y compras automáticas"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -1477,7 +1477,6 @@ def page_ventas():
             if tipo_venta == "Crédito" and opciones_cliente[cliente_nombre] is None:
                 st.error("Para vender a crédito debes seleccionar un cliente registrado."); return
             u=current_user(); comprobante=f"V{peru_now().strftime('%Y%m%d%H%M%S')}"
-            estado_pago = "Pagada" if saldo <= 0 else ("Parcial" if monto_pagado > 0 else "Pendiente")
             metodo_final = metodo_pago if tipo_venta == "Contado" else ("Crédito" if monto_pagado <= 0 else f"Crédito + {metodo_pago}")
             try:
                 with ENGINE.begin() as conn:
@@ -3743,7 +3742,6 @@ def page_ventas():
             if tipo_venta == "Crédito" and opciones_cliente[cliente_nombre] is None:
                 st.error("Para vender a crédito debes seleccionar un cliente registrado."); return
             u=current_user(); comprobante=f"V{peru_now().strftime('%Y%m%d%H%M%S')}"
-            estado_pago = "Pagada" if saldo <= 0 else ("Parcial" if monto_pagado > 0 else "Pendiente")
             metodo_final = metodo_pago if tipo_venta == "Contado" else ("Crédito" if monto_pagado <= 0 else f"Crédito + {metodo_pago}")
             try:
                 with ENGINE.begin() as conn:
@@ -4476,7 +4474,6 @@ def page_ventas():
             if tipo_venta == "Crédito" and opciones_cliente[cliente_nombre] is None:
                 st.error("Para vender a crédito debes seleccionar un cliente registrado."); return
             u=current_user()
-            estado_pago = "Pagada" if saldo <= 0 else ("Parcial" if monto_pagado > 0 else "Pendiente")
             metodo_final = metodo_pago if tipo_venta == "Contado" else ("Crédito" if monto_pagado <= 0 else f"Crédito + {metodo_pago}")
             try:
                 with ENGINE.begin() as conn:
@@ -4834,23 +4831,41 @@ def page_ingreso_mercaderia():
 
     total = float(cantidad or 0) * float(costo or 0)
 
+    # V29.1: se elimina la caja vacía de "Monto pagado" para pagos al contado.
+    # El pago se calcula solo con cantidad × costo unitario y solo se pide adelanto cuando es crédito.
     c4,c5 = st.columns(2)
     with c4:
         if metodo == "Crédito":
             max_pagado = float(total) if total > 0 else 0.0
-            monto_pagado = st.number_input("Monto pagado / adelanto", min_value=0.0, max_value=max_pagado, value=0.0, step=1.0, key="ing_monto_credito_v29")
+            monto_pagado = st.number_input(
+                "Monto pagado / adelanto",
+                min_value=0.0,
+                max_value=max_pagado,
+                value=0.0,
+                step=1.0,
+                key="ing_monto_credito_v291",
+                help="Solo se llena cuando la compra queda a crédito o con adelanto."
+            )
         else:
             monto_pagado = float(total)
-            st.text_input("Monto pagado", value=money(monto_pagado), disabled=True, key="ing_monto_auto_v29")
-            st.caption("Se calcula automáticamente: cantidad × costo unitario.")
+            st.markdown(
+                f"""
+                <div class='info-soft'>
+                    <b>Monto pagado automático:</b><br>
+                    <span style='font-size:1.55rem;font-weight:900;color:#111827;'>{money(monto_pagado)}</span><br>
+                    <span style='color:#64748b;'>Se calcula: cantidad ingresada × costo unitario.</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
     with c5:
-        obs = st.text_input("Observación", placeholder="Factura, guía, nota de compra...", key="ing_obs_v29")
+        obs = st.text_input("Observación", placeholder="Factura, guía, nota de compra...", key="ing_obs_v291")
 
     saldo = max(float(total) - float(monto_pagado), 0)
     k1,k2,k3 = st.columns(3)
     with k1: kpi("Total ingreso", money(total), "Cantidad × costo")
-    with k2: kpi("Monto pagado", money(monto_pagado), "Automático salvo crédito")
-    with k3: kpi("Saldo", money(saldo), "Pendiente al proveedor")
+    with k2: kpi("Monto pagado", money(monto_pagado), "Calculado en vivo")
+    with k3: kpi("Saldo", money(saldo), "Solo queda si es crédito")
 
     guardar = st.button("Registrar ingreso de mercadería", type="primary", use_container_width=True, key="btn_ing_guardar_v29")
     if guardar:
@@ -4862,12 +4877,11 @@ def page_ingreso_mercaderia():
             idp = opciones[prod_sel]
             u = current_user()
             ref = f"ING{peru_now().strftime('%Y%m%d%H%M%S')}"
-            estado_pago = "Pagada" if saldo <= 0 else ("Parcial" if monto_pagado > 0 else "Pendiente")
             with ENGINE.begin() as conn:
                 conn.execute(text("""
-                    INSERT INTO compras (proveedor,total_compra,monto_pagado,metodo_pago,observacion,id_usuario,saldo_pendiente,estado_pago)
-                    VALUES (:p,:t,:mp,:m,:o,:u,:saldo,:estado)
-                """), {"p": proveedor, "t": total, "mp": monto_pagado, "m": metodo, "o": obs, "u": u["id_usuario"], "saldo": saldo, "estado": estado_pago})
+                    INSERT INTO compras (proveedor,total_compra,monto_pagado,metodo_pago,observacion,id_usuario)
+                    VALUES (:p,:t,:mp,:m,:o,:u)
+                """), {"p": proveedor, "t": total, "mp": monto_pagado, "m": metodo, "o": obs, "u": u["id_usuario"]})
                 conn.execute(text("INSERT INTO movimientos_stock (id_producto,tipo,cantidad,costo_unitario,referencia,id_usuario,observacion) VALUES (:id,'ENTRADA_COMPRA',:cant,:costo,:ref,:u,:obs)"), {"id": idp, "cant": cantidad, "costo": costo, "ref": ref, "u": u["id_usuario"], "obs": f"Proveedor: {proveedor}. {obs}"})
                 conn.execute(text("UPDATE productos SET costo_unitario=:c, actualizado_en=CURRENT_TIMESTAMP WHERE id_producto=:id"), {"c": costo, "id": idp})
                 if monto_pagado > 0:
@@ -4960,33 +4974,47 @@ def page_ventas():
                 st.info("No hay productos con stock disponible.")
             else:
                 productos["codigo_norm"] = productos["codigo"].apply(normalize_code)
-                productos["label_pos"] = productos.apply(lambda r: f"{normalize_code(r.get('codigo'))} · {r.get('nombre_producto')} · Stock {num(r.get('stock_actual'))} · {money(r.get('precio_venta'))}", axis=1)
-                scan = st.text_input("Buscar / escanear producto", placeholder="Escribe nombre, código, marca o escanea con lector USB", key="pos_scan_v29")
+                productos["label_pos"] = productos.apply(lambda r: f"{normalize_code(r.get('codigo'))} · {r.get('nombre_producto')} · {r.get('categoria')} · Stock {num(r.get('stock_actual'))} · {money(r.get('precio_venta'))}", axis=1)
 
-                resultados = productos.copy()
-                if scan.strip():
-                    q_raw = scan.strip()
-                    q = q_raw.lower()
-                    q_norm = normalize_code(q_raw)
-                    exact = productos[productos["codigo_norm"].astype(str).eq(q_norm)]
-                    similares = productos[
-                        productos["codigo_norm"].astype(str).str.lower().str.contains(q_norm.lower(), na=False) |
-                        productos["codigo"].astype(str).str.lower().str.contains(q, na=False) |
-                        productos["nombre_producto"].astype(str).str.lower().str.contains(q, na=False) |
-                        productos["marca"].astype(str).str.lower().str.contains(q, na=False) |
-                        productos["categoria"].astype(str).str.lower().str.contains(q, na=False)
-                    ]
-                    resultados = pd.concat([exact, similares]).drop_duplicates(subset=["id_producto"])
-                    if resultados.empty:
-                        st.warning("No se encontraron productos similares. Revisa el código o nombre escrito.")
-                    else:
-                        st.caption(f"{len(resultados)} producto(s) encontrado(s). Elige uno de la lista.")
+                st.caption("V29.1: abre el desplegable y escribe. La lista filtra mientras escribes, sin presionar Enter y con menos lag.")
+                labels = productos["label_pos"].tolist()
+                sel = st.selectbox(
+                    "Buscar y seleccionar producto",
+                    labels,
+                    index=0,
+                    key="pos_producto_select_v291",
+                    help="Haz clic en la lista y escribe parte del nombre, código, marca o categoría. Streamlit filtra al instante dentro del desplegable."
+                )
+                r = productos[productos["label_pos"].eq(sel)].iloc[0]
 
-                if not resultados.empty:
-                    labels = resultados["label_pos"].tolist()
-                    key_busqueda = normalize_code(scan) if scan.strip() else "todos"
-                    sel = st.selectbox("Productos similares encontrados", labels, index=0, key=f"pos_producto_select_v29_{key_busqueda}")
-                    r = resultados[resultados["label_pos"].eq(sel)].iloc[0]
+                with st.expander("Escáner por código de barras / código interno", expanded=False):
+                    scan = st.text_input("Escanear o escribir código exacto", placeholder="Ejemplo: 0003", key="pos_scan_exact_v291")
+                    st.caption("El lector USB normalmente escribe el código y manda Enter. Si coincide con un producto, selecciónalo desde el desplegable o agrégalo con el botón.")
+                    if scan.strip():
+                        q_norm = normalize_code(scan.strip())
+                        exact = productos[productos["codigo_norm"].astype(str).eq(q_norm)]
+                        if exact.empty:
+                            st.warning("Código no encontrado.")
+                        else:
+                            rex = exact.iloc[0]
+                            st.success(f"Encontrado: {rex.get('nombre_producto')} · Stock {num(rex.get('stock_actual'))} · {money(rex.get('precio_venta'))}")
+                            if st.button("Agregar código escaneado al carrito", type="primary", use_container_width=True, key="btn_scan_add_v291"):
+                                stock_scan = float(rex.get("stock_actual") or 0)
+                                precio_scan = float(rex.get("precio_venta") or 0)
+                                found_scan = False
+                                for item in st.session_state.cart:
+                                    if item["id_producto"] == int(rex["id_producto"]):
+                                        item["cantidad"] = min(float(item["cantidad"]) + 1.0, stock_scan)
+                                        item["precio"] = precio_scan
+                                        found_scan = True
+                                        break
+                                if not found_scan:
+                                    st.session_state.cart.append({"id_producto": int(rex["id_producto"]), "nombre": rex["nombre_producto"], "codigo": rex.get("codigo", ""), "precio": precio_scan, "costo": float(rex.get("costo_unitario") or 0), "stock": stock_scan, "cantidad": 1.0})
+                                st.session_state.pos_scan_exact_v291 = ""
+                                st.toast("Producto agregado por código")
+                                st.rerun()
+
+                if True:
                     stock = float(r.get("stock_actual") or 0)
                     candidates = product_image_candidates(r)
                     img = candidates[0] if candidates else ""
@@ -5110,7 +5138,6 @@ def page_ventas():
             if tipo_venta == "Crédito" and opciones_cliente[cliente_nombre] is None:
                 st.error("Para vender a crédito debes seleccionar un cliente registrado."); return
             u=current_user()
-            estado_pago = "Pagada" if saldo <= 0 else ("Parcial" if monto_pagado > 0 else "Pendiente")
             metodo_final = metodo_pago if tipo_venta == "Contado" else ("Crédito" if monto_pagado <= 0 else f"Crédito + {metodo_pago}")
             try:
                 with ENGINE.begin() as conn:
