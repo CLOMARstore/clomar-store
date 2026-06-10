@@ -28,7 +28,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V25.11 Inventario por categoría + créditos filtrados + comprobante consecutivo"
+APP_VERSION = "V26 Estable Operativa"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -4389,6 +4389,466 @@ def page_ventas():
             except Exception as e:
                 st.error("No se pudo registrar la venta."); st.exception(e)
 
+
+
+# ============================================================
+# V26 - ESTABLE OPERATIVA
+# ============================================================
+def inject_css_v26():
+    st.markdown("""
+    <style>
+      :root{ --v26-dark:#0f172a; --v26-soft:#f8fafc; --v26-line:#e5e7eb; --v26-muted:#64748b; }
+      .v26-row3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:14px 0;}
+      .v26-row4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:14px 0;}
+      .v26-panel{background:#fff;border:1px solid var(--v26-line);border-radius:22px;padding:18px;box-shadow:0 10px 28px rgba(15,23,42,.05);}
+      .v26-panel h3{margin:0 0 14px 0;color:#0f172a;font-size:24px;}
+      .v26-list{display:flex;flex-direction:column;gap:10px;}
+      .v26-barline{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;font-weight:900;color:#0f172a;margin:8px 0 4px;}
+      .v26-bartrack{height:10px;border-radius:999px;background:#e5e7eb;overflow:hidden;}
+      .v26-barfill{height:10px;border-radius:999px;background:#0f172a;}
+      .v26-filter{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;margin:10px 0 18px;box-shadow:0 8px 24px rgba(15,23,42,.04);}
+      .v26-preview{display:grid;grid-template-columns:105px 1fr;gap:14px;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:10px;}
+      .v26-preview img{width:105px;height:95px;object-fit:contain;border-radius:14px;background:#f8fafc;border:1px solid #e5e7eb;}
+      .v26-preview .title{font-weight:950;color:#0f172a;font-size:16px;line-height:1.2;}
+      .v26-preview .meta{font-weight:700;color:#64748b;font-size:12px;margin-top:3px;}
+      .v26-preview .price{font-weight:950;color:#0f172a;font-size:23px;margin-top:5px;}
+      .v26-mini-card{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;box-shadow:0 8px 22px rgba(15,23,42,.05);}
+      .v26-mini-card b{color:#0f172a;}
+      .v26-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px;}
+      .stButton > button[kind="primary"], [data-testid="stFormSubmitButton"] button, button[data-testid="baseButton-primary"]{background:#0f172a!important;color:#fff!important;border-color:#0f172a!important;}
+      .stButton > button[kind="primary"] *, [data-testid="stFormSubmitButton"] button *, button[data-testid="baseButton-primary"] *{color:#fff!important;opacity:1!important;}
+      .stDownloadButton button{border-radius:14px!important;}
+      @media(max-width:1100px){.v26-row3,.v26-row4{grid-template-columns:1fr 1fr}.v26-actions{grid-template-columns:1fr}}
+      @media(max-width:700px){.v26-row3,.v26-row4{grid-template-columns:1fr}.v26-preview{grid-template-columns:80px 1fr}.v26-preview img{width:80px;height:72px}.clomar-hero h1{font-size:26px!important}}
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def ensure_v26_schema():
+    try:
+        ensure_v25_11_schema()
+    except Exception:
+        pass
+    try:
+        exec_sql(f"""
+            CREATE TABLE IF NOT EXISTS auditoria_sistema (
+                id_auditoria {id_sql()},
+                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                id_usuario INTEGER,
+                modulo VARCHAR(80),
+                accion VARCHAR(120),
+                referencia VARCHAR(160),
+                detalle TEXT DEFAULT ''
+            )
+        """)
+        exec_sql("CREATE INDEX IF NOT EXISTS idx_auditoria_fecha ON auditoria_sistema(fecha)")
+    except Exception:
+        pass
+
+
+def log_auditoria(modulo: str, accion: str, referencia: str = "", detalle: str = ""):
+    try:
+        uid = None
+        if current_user():
+            uid = current_user().get("id_usuario")
+        exec_sql("""
+            INSERT INTO auditoria_sistema (id_usuario, modulo, accion, referencia, detalle)
+            VALUES (:uid,:m,:a,:r,:d)
+        """, {"uid": uid, "m": modulo, "a": accion, "r": referencia, "d": detalle})
+    except Exception:
+        pass
+
+
+def _ventas_filtradas_v26(desde, hasta, vendedor="Todos", metodo="Todos", estado="Todos", cliente_buscar=""):
+    df = query_df("""
+        SELECT v.*, COALESCE(c.nombre_cliente,'Cliente general') AS cliente, COALESCE(c.telefono,'') AS telefono
+        FROM ventas v
+        LEFT JOIN clientes c ON c.id_cliente=v.id_cliente
+        WHERE DATE(v.fecha) BETWEEN :d AND :h
+        ORDER BY v.fecha DESC
+    """, {"d": str(desde), "h": str(hasta)})
+    if df.empty:
+        return df
+    for col in ["total_venta","monto_pagado","saldo_pendiente","anulada"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    if vendedor != "Todos":
+        df = df[df["vendedor_nombre"].astype(str).eq(str(vendedor))]
+    if metodo != "Todos":
+        df = df[df["metodo_pago"].astype(str).str.contains(str(metodo), case=False, na=False)]
+    if estado != "Todos":
+        if estado == "Anuladas":
+            df = df[df["anulada"].eq(1)]
+        elif estado == "Vigentes":
+            df = df[df["anulada"].eq(0)]
+        else:
+            df = df[(df["anulada"].eq(0)) & (df["estado_pago"].astype(str).eq(str(estado)))]
+    if cliente_buscar.strip():
+        q = cliente_buscar.strip().lower()
+        df = df[df["cliente"].astype(str).str.lower().str.contains(q, na=False) | df["comprobante"].astype(str).str.lower().str.contains(q, na=False) | df["vendedor_nombre"].astype(str).str.lower().str.contains(q, na=False) | df["metodo_pago"].astype(str).str.lower().str.contains(q, na=False)]
+    return df
+
+
+def _bar_card_v26(title: str, df: pd.DataFrame, label_col: str, value_col: str, max_rows: int = 6):
+    st.markdown(f"<div class='v26-panel'><h3>{esc(title)}</h3>", unsafe_allow_html=True)
+    if df is None or df.empty or value_col not in df.columns:
+        st.info("Sin información para mostrar.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+    temp = df.copy().head(max_rows)
+    temp[value_col] = pd.to_numeric(temp[value_col], errors="coerce").fillna(0)
+    max_val = float(temp[value_col].max() or 0)
+    for _, r in temp.iterrows():
+        label = esc(r.get(label_col, ""))
+        val = float(r.get(value_col, 0) or 0)
+        pct = 0 if max_val <= 0 else max(2, min(100, (val / max_val) * 100))
+        st.markdown(f"""
+        <div class='v26-barline'><span>{label}</span><span>{money(val)}</span></div>
+        <div class='v26-bartrack'><div class='v26-barfill' style='width:{pct:.1f}%'></div></div>
+        """, unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def page_panel_dueno():
+    ensure_v26_schema()
+    hero("Panel del dueño", "Control ejecutivo de ventas, caja, créditos, stock y rendimiento por vendedor.", "📊")
+    if not is_admin():
+        st.warning("Solo administrador puede ver este panel.")
+        return
+    c1, c2 = st.columns(2)
+    with c1:
+        desde = st.date_input("Desde", peru_today(), key="dueno_desde_v26")
+    with c2:
+        hasta = st.date_input("Hasta", peru_today(), key="dueno_hasta_v26")
+    ventas = _ventas_filtradas_v26(desde, hasta, estado="Vigentes")
+    productos = productos_con_stock()
+    total = float(ventas["total_venta"].sum()) if not ventas.empty else 0
+    cobrado = float(ventas["monto_pagado"].sum()) if not ventas.empty else 0
+    credito = float(ventas["saldo_pendiente"].sum()) if not ventas.empty else 0
+    ticket = total / len(ventas) if len(ventas) else 0
+    det = detalle_productos_vendidos(desde, hasta)
+    utilidad = float(det["utilidad"].sum()) if not det.empty and "utilidad" in det.columns else 0
+    a,b,c,d = st.columns(4)
+    with a: kpi("Ventas", money(total), f"{len(ventas)} comprobantes")
+    with b: kpi("Cobrado", money(cobrado), "Caja + abonos")
+    with c: kpi("Crédito", money(credito), "Pendiente por cobrar")
+    with d: kpi("Utilidad", money(utilidad), f"Ticket {money(ticket)}")
+    st.markdown("<div class='v26-row3'>", unsafe_allow_html=True)
+    if ventas.empty:
+        st.info("No hay ventas en el periodo.")
+    else:
+        vvend = ventas.groupby("vendedor_nombre", as_index=False).agg(total=("total_venta","sum"), cobrado=("monto_pagado","sum"), credito=("saldo_pendiente","sum"), ventas=("id_venta","count")).sort_values("total", ascending=False)
+        _bar_card_v26("Ventas por vendedor", vvend, "vendedor_nombre", "total", 5)
+        vpago = ventas.groupby("metodo_pago", as_index=False).agg(total=("monto_pagado","sum")).sort_values("total", ascending=False)
+        _bar_card_v26("Cobros por método", vpago, "metodo_pago", "total", 6)
+        ventas["dia_fmt"] = ventas["fecha"].apply(lambda x: _to_peru_dt(x).strftime("%d/%m") if _to_peru_dt(x) else "")
+        vdia = ventas.groupby("dia_fmt", as_index=False).agg(total=("total_venta","sum")).sort_values("dia_fmt")
+        _bar_card_v26("Ventas por día", vdia, "dia_fmt", "total", 7)
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.subheader("Alertas operativas")
+    colA, colB = st.columns(2)
+    with colA:
+        stock_crit = productos.copy() if not productos.empty else pd.DataFrame()
+        if not stock_crit.empty:
+            for col in ["stock_actual","stock_minimo"]:
+                stock_crit[col] = pd.to_numeric(stock_crit[col], errors="coerce").fillna(0)
+            stock_crit = stock_crit[stock_crit["stock_actual"] <= stock_crit["stock_minimo"]]
+        if stock_crit.empty:
+            st.success("Sin productos críticos.")
+        else:
+            st.warning(f"{len(stock_crit)} productos requieren reposición o revisión.")
+            tmp = stock_crit.head(8).copy()
+            tmp["stock_fmt"] = tmp["stock_actual"].apply(num)
+            html_table(tmp, ["codigo","nombre_producto","categoria","stock_fmt"], ["Código","Producto","Categoría","Stock"], 8)
+    with colB:
+        cred = query_df("""
+            SELECT COALESCE(c.nombre_cliente,'Cliente general') AS cliente, COUNT(*) AS ventas, SUM(v.saldo_pendiente) AS saldo
+            FROM ventas v LEFT JOIN clientes c ON c.id_cliente=v.id_cliente
+            WHERE COALESCE(v.anulada,0)=0 AND COALESCE(v.saldo_pendiente,0)>0
+            GROUP BY COALESCE(c.nombre_cliente,'Cliente general')
+            ORDER BY saldo DESC LIMIT 8
+        """)
+        if cred.empty:
+            st.success("Sin créditos pendientes.")
+        else:
+            cred["saldo_fmt"] = cred["saldo"].apply(money)
+            html_table(cred, ["cliente","ventas","saldo_fmt"], ["Cliente","Ventas","Saldo"], 8)
+    st.subheader("Ventas recientes")
+    if ventas.empty:
+        st.info("Sin ventas recientes.")
+    else:
+        vr = ventas.head(12).copy()
+        vr["fecha_fmt"] = vr["fecha"].apply(fmt_dt)
+        vr["total_fmt"] = vr["total_venta"].apply(money)
+        vr["pagado_fmt"] = vr["monto_pagado"].apply(money)
+        html_table(vr, ["comprobante","fecha_fmt","cliente","vendedor_nombre","metodo_pago","total_fmt","pagado_fmt","estado_pago"], ["Comprobante","Fecha","Cliente","Vendedor","Método","Total","Pagado","Estado"], 12)
+
+
+def page_reportes():
+    ensure_v26_schema()
+    hero("Reportes ejecutivos", "Control filtrable por vendedor, método, día, producto, cliente y comprobante.", "📈")
+    if not is_admin():
+        st.warning("Solo administrador puede ver reportes.")
+        return
+    st.markdown("<div class='v26-filter'>", unsafe_allow_html=True)
+    c1,c2,c3,c4 = st.columns([.75,.75,.85,.85])
+    with c1: desde = st.date_input("Desde", peru_today()-timedelta(days=7), key="rep_desde_v26")
+    with c2: hasta = st.date_input("Hasta", peru_today(), key="rep_hasta_v26")
+    allv = _ventas_filtradas_v26(desde, hasta, estado="Todos")
+    vendedores = ["Todos"] + sorted(allv["vendedor_nombre"].dropna().astype(str).unique().tolist()) if not allv.empty else ["Todos"]
+    metodos = ["Todos", "Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Mixto", "Crédito"]
+    with c3: vendedor = st.selectbox("Vendedor", vendedores, key="rep_vendedor_v26")
+    with c4: metodo = st.selectbox("Método", metodos, key="rep_metodo_v26")
+    c5,c6 = st.columns([.8,1.2])
+    with c5: estado = st.selectbox("Estado", ["Vigentes", "Todos", "Pagada", "Parcial", "Pendiente", "Anuladas"], key="rep_estado_v26")
+    with c6: buscar = st.text_input("Buscar", placeholder="Comprobante, cliente, vendedor o método", key="rep_buscar_v26")
+    st.markdown("</div>", unsafe_allow_html=True)
+    ventas = _ventas_filtradas_v26(desde, hasta, vendedor=vendedor, metodo=metodo, estado=estado, cliente_buscar=buscar)
+    if ventas.empty:
+        st.info("No hay ventas con los filtros seleccionados.")
+    else:
+        total = float(ventas["total_venta"].sum())
+        cobrado = float(ventas["monto_pagado"].sum())
+        credito = float(ventas["saldo_pendiente"].sum())
+        anuladas = int((ventas["anulada"] == 1).sum()) if "anulada" in ventas.columns else 0
+        a,b,c,d = st.columns(4)
+        with a: kpi("Total ventas", money(total), f"{len(ventas)} comprobantes")
+        with b: kpi("Cobrado", money(cobrado), "Ingresado")
+        with c: kpi("Crédito", money(credito), "Pendiente")
+        with d: kpi("Anuladas", str(anuladas), "En filtro")
+        st.markdown("<div class='v26-row3'>", unsafe_allow_html=True)
+        _bar_card_v26("Ventas por vendedor", ventas.groupby("vendedor_nombre", as_index=False).agg(total=("total_venta","sum")).sort_values("total", ascending=False), "vendedor_nombre", "total", 6)
+        _bar_card_v26("Métodos de pago", ventas.groupby("metodo_pago", as_index=False).agg(total=("monto_pagado","sum")).sort_values("total", ascending=False), "metodo_pago", "total", 6)
+        temp = ventas.copy()
+        temp["dia_fmt"] = temp["fecha"].apply(lambda x: _to_peru_dt(x).strftime("%d/%m") if _to_peru_dt(x) else "")
+        _bar_card_v26("Ventas por día", temp.groupby("dia_fmt", as_index=False).agg(total=("total_venta","sum")).sort_values("dia_fmt"), "dia_fmt", "total", 8)
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.subheader("Productos vendidos")
+        prod = query_df("""
+            SELECT dv.producto_nombre AS producto, SUM(dv.cantidad) AS unidades, SUM(dv.subtotal) AS total,
+                   SUM((dv.precio_unitario-COALESCE(dv.costo_unitario,0))*dv.cantidad) AS utilidad
+            FROM detalle_ventas dv JOIN ventas v ON v.id_venta=dv.id_venta
+            WHERE DATE(v.fecha) BETWEEN :d AND :h AND COALESCE(v.anulada,0)=0
+            GROUP BY dv.producto_nombre ORDER BY total DESC LIMIT 50
+        """, {"d": str(desde), "h": str(hasta)})
+        if not prod.empty:
+            prod["total_fmt"] = prod["total"].apply(money); prod["utilidad_fmt"] = prod["utilidad"].apply(money)
+            html_table(prod, ["producto","unidades","total_fmt","utilidad_fmt"], ["Producto","Unid.","Total","Utilidad"], 50)
+        st.subheader("Detalle de comprobantes")
+        det = ventas.copy()
+        det["fecha_fmt"] = det["fecha"].apply(fmt_dt)
+        det["total_fmt"] = det["total_venta"].apply(money)
+        det["pagado_fmt"] = det["monto_pagado"].apply(money)
+        det["saldo_fmt"] = det["saldo_pendiente"].apply(money)
+        html_table(det, ["comprobante","fecha_fmt","cliente","vendedor_nombre","metodo_pago","total_fmt","pagado_fmt","saldo_fmt","estado_pago"], ["Comprobante","Fecha","Cliente","Vendedor","Método","Total","Pagado","Saldo","Estado"], 300)
+        csv = det.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("Descargar detalle CSV", data=csv, file_name=f"reporte_clomar_{desde}_{hasta}.csv", mime="text/csv", use_container_width=True)
+    with st.expander("Anular venta / comprobante", expanded=False):
+        vig = _ventas_filtradas_v26(desde, hasta, estado="Vigentes")
+        if vig.empty:
+            st.info("No hay ventas vigentes para anular en este rango.")
+        else:
+            opts = {f"{r['comprobante']} · {fmt_dt(r['fecha'])} · {r['cliente']} · {money(r['total_venta'])}": int(r['id_venta']) for _, r in vig.iterrows()}
+            with st.form("form_anular_v26"):
+                label = st.selectbox("Comprobante", list(opts.keys()))
+                motivo = st.text_area("Motivo obligatorio", placeholder="Ej: error de producto, cantidad equivocada, cliente canceló...")
+                confirmar = st.checkbox("Confirmo anulación y reverso de stock/caja")
+                submit = st.form_submit_button("Anular venta", type="primary", use_container_width=True)
+            if submit:
+                if not confirmar or not motivo.strip():
+                    st.error("Debes confirmar y escribir un motivo.")
+                else:
+                    try:
+                        anular_venta(opts[label], motivo.strip())
+                        log_auditoria("Reportes", "Anulación de venta", label, motivo.strip())
+                        clear_product_cache(); clear_report_cache()
+                        st.success("Venta anulada. Stock y caja fueron revertidos.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error("No se pudo anular la venta."); st.exception(e)
+
+
+def page_ventas():
+    ensure_v26_schema()
+    hero("Venta rápida", "Modo POS estable: escanea código, confirma producto, cobra o registra crédito.", "🧾")
+    if "cart" not in st.session_state:
+        st.session_state.cart = []
+    if "pos_step" not in st.session_state:
+        st.session_state.pos_step = "carrito"
+    if st.session_state.get("show_success_sale"):
+        st.markdown("<div class='success-panel'><div class='success-icon'>✅</div><div class='success-title'>¡Venta registrada!</div><div class='success-sub'>Descarga, imprime o continúa vendiendo.</div></div>", unsafe_allow_html=True)
+        render_receipt(int(st.session_state.last_sale_id))
+        c1,c2 = st.columns(2)
+        with c1:
+            if st.button("Seguir vendiendo", type="primary", use_container_width=True):
+                st.session_state.show_success_sale = False
+                st.session_state.pos_step = "carrito"
+                st.rerun()
+        return
+    productos = productos_con_stock()
+    if productos.empty:
+        st.info("Primero registra productos.")
+        return
+    for col in ["stock_actual","precio_venta","costo_unitario"]:
+        productos[col] = pd.to_numeric(productos[col], errors="coerce").fillna(0)
+    total_actual = sum(float(i.get("cantidad",0))*float(i.get("precio",0)) for i in st.session_state.cart)
+    a,b,c = st.columns(3)
+    with a: kpi("Carrito", f"{len(st.session_state.cart)} productos", "Edita antes de cobrar")
+    with b: kpi("Total actual", money(total_actual), "No se registra hasta confirmar")
+    with c: kpi("Paso", "Pago" if st.session_state.pos_step == "pago" else "Carrito", "POS estable")
+    if st.session_state.pos_step == "carrito":
+        left,right = st.columns([1.1,.9])
+        with left:
+            st.markdown("<div class='v26-panel'><h3>Agregar producto</h3><p>Escanea código o selecciona de la lista. Solo se carga la imagen del producto elegido.</p>", unsafe_allow_html=True)
+            scan = st.text_input("Escanear / buscar código", placeholder="Coloca el cursor aquí y escanea código de barras", key="scan_v26")
+            base = productos.copy()
+            selected_row = None
+            if scan.strip():
+                q = scan.strip().lower()
+                m = base[base["codigo"].astype(str).str.lower().eq(q) | base["codigo"].astype(str).str.lower().str.contains(q, na=False) | base["nombre_producto"].astype(str).str.lower().str.contains(q, na=False)]
+                if not m.empty:
+                    selected_row = m.iloc[0]
+            opts = {f"{normalize_code(r['codigo'])} · {r['nombre_producto']} · Stock {num(r['stock_actual'])} · {money(r['precio_venta'])}": int(r["id_producto"]) for _, r in base.iterrows()}
+            if selected_row is None:
+                label = st.selectbox("Producto", list(opts.keys()), key="selprod_v26")
+                selected_id = opts[label]
+                selected_row = base[base["id_producto"].eq(selected_id)].iloc[0]
+            else:
+                st.success(f"Producto encontrado: {selected_row['nombre_producto']}")
+            img = product_image_candidates(selected_row)
+            img_html = f"<img src='{esc(img[0])}' onerror=\"this.style.display='none'\">" if img else "<div></div>"
+            st.markdown(f"""
+            <div class='v26-preview'>{img_html}<div>
+                <div class='title'>{esc(selected_row['nombre_producto'])}</div>
+                <div class='meta'>Código {esc(normalize_code(selected_row.get('codigo')))} · {esc(selected_row.get('categoria'))} · Stock {num(selected_row.get('stock_actual'))}</div>
+                <div class='price'>{money(selected_row.get('precio_venta'))}</div>
+            </div></div>
+            """, unsafe_allow_html=True)
+            with st.form("add_cart_v26"):
+                c1,c2 = st.columns(2)
+                stock = float(selected_row.get("stock_actual") or 0)
+                with c1:
+                    cantidad = st.number_input("Cantidad", min_value=1.0, max_value=max(1.0, stock), value=1.0, step=1.0)
+                with c2:
+                    if is_admin():
+                        precio = st.number_input("Precio", min_value=0.0, value=float(selected_row.get("precio_venta") or 0), step=1.0)
+                    else:
+                        precio = float(selected_row.get("precio_venta") or 0)
+                        st.text_input("Precio", value=money(precio), disabled=True)
+                add = st.form_submit_button("Agregar al carrito", type="primary", use_container_width=True, disabled=stock <= 0)
+            if add:
+                found = False
+                for item in st.session_state.cart:
+                    if item["id_producto"] == int(selected_row["id_producto"]):
+                        item["cantidad"] = min(float(item["cantidad"]) + float(cantidad), stock)
+                        item["precio"] = float(precio)
+                        found = True
+                        break
+                if not found:
+                    st.session_state.cart.append({"id_producto": int(selected_row["id_producto"]), "nombre": selected_row["nombre_producto"], "codigo": selected_row.get("codigo", ""), "precio": float(precio), "costo": float(selected_row.get("costo_unitario") or 0), "stock": stock, "cantidad": float(cantidad)})
+                st.session_state.scan_v26 = ""
+                st.toast("Producto agregado")
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+        with right:
+            st.markdown("<div class='v26-panel'><h3>Carrito</h3>", unsafe_allow_html=True)
+            if not st.session_state.cart:
+                st.info("Agrega productos para vender.")
+            else:
+                nuevo=[]; total=0.0
+                for idx,item in enumerate(st.session_state.cart):
+                    st.markdown(f"<div class='v26-mini-card'><b>{esc(item['nombre'])}</b><br><span class='small-note'>{esc(item.get('codigo',''))}</span></div>", unsafe_allow_html=True)
+                    c1,c2,c3,c4 = st.columns([.6,.7,.75,.25])
+                    with c1: cant = st.number_input("Cant.", min_value=0.0, max_value=float(item['stock']), value=float(item['cantidad']), step=1.0, key=f"cart_cant_v26_{idx}")
+                    with c2: precio2 = st.number_input("Precio", min_value=0.0, value=float(item['precio']), step=1.0, key=f"cart_precio_v26_{idx}") if is_admin() else float(item['precio'])
+                    with c3: st.text_input("Subtotal", value=money(cant*precio2), disabled=True, key=f"cart_sub_v26_{idx}")
+                    with c4:
+                        if st.button("❌", key=f"cart_del_v26_{idx}"):
+                            cant = 0
+                    if cant > 0:
+                        item['cantidad']=cant; item['precio']=precio2; total += cant*precio2; nuevo.append(item)
+                st.session_state.cart = nuevo
+                st.markdown(f"<div class='pos-total-banner'><b>Total</b><b>{money(total)}</b></div>", unsafe_allow_html=True)
+                c1,c2=st.columns(2)
+                with c1:
+                    if st.button("Vaciar carrito", use_container_width=True):
+                        st.session_state.cart=[]; st.rerun()
+                with c2:
+                    if st.button("Continuar al pago", type="primary", use_container_width=True, disabled=total<=0):
+                        st.session_state.pos_step="pago"; st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        if not st.session_state.cart:
+            st.warning("Carrito vacío.")
+            if st.button("Volver al carrito", type="primary"):
+                st.session_state.pos_step="carrito"; st.rerun()
+            return
+        total = sum(float(i.get("cantidad",0))*float(i.get("precio",0)) for i in st.session_state.cart)
+        st.markdown(f"<div class='pos-total-banner'><b>Total a cobrar</b><b>{money(total)}</b></div>", unsafe_allow_html=True)
+        clientes = query_df("SELECT id_cliente,nombre_cliente,telefono FROM clientes WHERE COALESCE(estado,'Activo')='Activo' ORDER BY nombre_cliente")
+        opciones_cliente = {"Cliente general": None}
+        if not clientes.empty:
+            opciones_cliente.update({f"{r['nombre_cliente']}" + (f" · {r['telefono']}" if str(r.get('telefono') or '').strip() else ""): int(r['id_cliente']) for _, r in clientes.iterrows()})
+        with st.form("confirm_sale_v26"):
+            c1,c2,c3 = st.columns(3)
+            with c1: tipo_venta = st.selectbox("Tipo de venta", ["Contado","Crédito"])
+            with c2: cliente_nombre = st.selectbox("Cliente", list(opciones_cliente.keys()))
+            with c3: metodo_pago = st.selectbox("Medio de pago", ["Efectivo","Yape","Plin","Transferencia","Tarjeta","Mixto"])
+            if tipo_venta == "Contado":
+                monto_pagado = st.number_input("Monto recibido", min_value=0.0, value=float(total), step=1.0)
+                fecha_venc = None
+            else:
+                monto_pagado = st.number_input("Pago inicial", min_value=0.0, max_value=float(total), value=0.0, step=1.0)
+                fecha_venc = st.date_input("Fecha de vencimiento", peru_today()+timedelta(days=15))
+            saldo = max(total-monto_pagado,0); vuelto=max(monto_pagado-total,0)
+            st.markdown(f"<div class='v26-row3'><div class='v26-mini-card'><b>Total:</b><br>{money(total)}</div><div class='v26-mini-card'><b>Pagado:</b><br>{money(monto_pagado)}</div><div class='v26-mini-card'><b>Saldo/Vuelto:</b><br>{money(saldo if saldo>0 else vuelto)}</div></div>", unsafe_allow_html=True)
+            obs = st.text_area("Observación")
+            c1,c2 = st.columns(2)
+            with c1: volver = st.form_submit_button("← Volver", use_container_width=True)
+            with c2: confirmar = st.form_submit_button("Confirmar venta", type="primary", use_container_width=True)
+        if volver:
+            st.session_state.pos_step="carrito"; st.rerun()
+        if confirmar:
+            if tipo_venta == "Contado" and monto_pagado < total:
+                st.error("En contado el monto recibido debe cubrir el total. Para deuda usa Crédito."); return
+            if tipo_venta == "Crédito" and opciones_cliente[cliente_nombre] is None:
+                st.error("Para crédito debes seleccionar un cliente registrado."); return
+            try:
+                u=current_user(); estado_pago = "Pagada" if saldo <= 0 else ("Parcial" if monto_pagado>0 else "Pendiente")
+                metodo_final = metodo_pago if tipo_venta=="Contado" else ("Crédito" if monto_pagado<=0 else f"Crédito + {metodo_pago}")
+                with ENGINE.begin() as conn:
+                    comprobante, numero = next_comprobante_conn(conn)
+                    conn.execute(text("""
+                        INSERT INTO ventas (comprobante,numero_consecutivo,id_cliente,id_usuario,vendedor_nombre,metodo_pago,total_venta,monto_pagado,saldo_pendiente,estado_pago,observacion,fecha_vencimiento,tipo_venta)
+                        VALUES (:comp,:num,:cli,:uid,:vend,:metodo,:total,:pagado,:saldo,:estado,:obs,:venc,:tipo)
+                    """), {"comp":comprobante,"num":numero,"cli":opciones_cliente[cliente_nombre],"uid":u["id_usuario"],"vend":u["nombre"],"metodo":metodo_final,"total":total,"pagado":monto_pagado,"saldo":saldo,"estado":estado_pago,"obs":obs,"venc":str(fecha_venc) if fecha_venc else None,"tipo":tipo_venta})
+                    venta_id = int(conn.execute(text("SELECT id_venta FROM ventas WHERE comprobante=:c"), {"c": comprobante}).scalar())
+                    for item in st.session_state.cart:
+                        subtotal=float(item['cantidad'])*float(item['precio'])
+                        conn.execute(text("INSERT INTO detalle_ventas (id_venta,id_producto,producto_nombre,cantidad,precio_unitario,costo_unitario,subtotal) VALUES (:idv,:idp,:prod,:cant,:precio,:costo,:sub)"), {"idv":venta_id,"idp":item['id_producto'],"prod":item['nombre'],"cant":item['cantidad'],"precio":item['precio'],"costo":item['costo'],"sub":subtotal})
+                        conn.execute(text("INSERT INTO movimientos_stock (id_producto,tipo,cantidad,costo_unitario,referencia,id_usuario,observacion) VALUES (:idp,'SALIDA_VENTA',:cant,:costo,:ref,:uid,'Venta')"), {"idp":item['id_producto'],"cant":item['cantidad'],"costo":item['costo'],"ref":comprobante,"uid":u["id_usuario"]})
+                    if monto_pagado > 0:
+                        conn.execute(text("INSERT INTO caja (tipo,concepto,metodo_pago,monto,referencia,id_usuario,observacion,id_venta) VALUES ('Ingreso',:concepto,:metodo,:monto,:ref,:uid,:obs,:idv)"), {"concepto":f"Venta {comprobante}","metodo":metodo_pago,"monto":monto_pagado,"ref":comprobante,"uid":u["id_usuario"],"obs":obs,"idv":venta_id})
+                    if tipo_venta == "Crédito" and monto_pagado > 0:
+                        conn.execute(text("INSERT INTO pagos_credito (id_venta,id_cliente,metodo_pago,monto,referencia,id_usuario,observacion) VALUES (:idv,:cli,:metodo,:monto,:ref,:uid,:obs)"), {"idv":venta_id,"cli":opciones_cliente[cliente_nombre],"metodo":metodo_pago,"monto":monto_pagado,"ref":comprobante,"uid":u["id_usuario"],"obs":"Pago inicial"})
+                clear_product_cache(); clear_report_cache(); log_auditoria("Ventas","Venta registrada",comprobante,f"Total {total}")
+                st.session_state.cart=[]; st.session_state.pos_step="carrito"; st.session_state.last_sale_id=venta_id; st.session_state.show_success_sale=True
+                st.rerun()
+            except Exception as e:
+                st.error("No se pudo registrar la venta."); st.exception(e)
+
+
+def page_instalar_app():
+    hero("Instalar Clomar Store", "Usa la aplicación como acceso directo en celular o laptop, sin Play Store ni App Store.", "📲")
+    st.markdown("""
+    <div class='v26-row3'>
+      <div class='v26-panel'><h3>Android</h3><p>Abre la app en Chrome → menú ⋮ → <b>Agregar a pantalla principal</b>. Quedará como app con ícono.</p></div>
+      <div class='v26-panel'><h3>Windows</h3><p>Abre en Chrome/Edge → menú ⋮ → <b>Instalar app</b> o <b>Crear acceso directo</b> y marca abrir como ventana.</p></div>
+      <div class='v26-panel'><h3>Próxima etapa PWA</h3><p>La V27 puede agregar manifest, íconos oficiales, pantalla de inicio y modo pantalla completa.</p></div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.info("Esta forma es gratis. Publicar en Play Store o App Store se deja para otra etapa, cuando la app esté completamente estabilizada.")
+
 # ============================================================
 # ARRANQUE
 # ============================================================
@@ -4407,6 +4867,7 @@ inject_css_v25_8()
 inject_css_v25_9()
 inject_css_v25_10()
 inject_css_v25_11()
+inject_css_v26()
 
 # Catálogo público por URL
 try:
