@@ -763,6 +763,38 @@ def inject_css():
         .ticket-top {{ padding:12mm 10mm !important; }}
     }}
 
+
+    /* ===== V25.7: visual limpio, botones negros, productos compactos y reportes sin gráficos pesados ===== */
+    .product-card {{ min-height:265px !important; padding:14px !important; border-radius:18px !important; gap:6px !important; }}
+    .product-img-wrap {{ height:132px !important; margin-bottom:4px !important; border-radius:14px !important; }}
+    .product-name {{ font-size:15px !important; line-height:1.25 !important; min-height:38px !important; }}
+    .product-meta {{ font-size:12px !important; line-height:1.28 !important; }}
+    .product-price {{ font-size:23px !important; margin-top:4px !important; }}
+    .chip {{ padding:6px 10px !important; font-size:11px !important; }}
+    .stButton > button[kind="primary"], .stFormSubmitButton button[kind="primary"], button[data-testid="baseButton-primary"], .stDownloadButton > button[kind="primary"] {{
+        background:#0f172a !important; color:#ffffff !important; border:1px solid #0f172a !important; box-shadow:0 8px 18px rgba(15,23,42,.18) !important;
+    }}
+    .stButton > button[kind="primary"] *, .stFormSubmitButton button[kind="primary"] *, button[data-testid="baseButton-primary"] *, .stDownloadButton > button[kind="primary"] * {{ color:#ffffff !important; }}
+    .stButton > button[kind="primary"] p, .stFormSubmitButton button[kind="primary"] p, button[data-testid="baseButton-primary"] p {{ color:#ffffff !important; }}
+    .stButton > button:hover, .stDownloadButton > button:hover {{ border-color:#0f172a !important; }}
+    [data-testid="stFormSubmitButton"] button {{ background:#0f172a !important; color:#fff !important; border-color:#0f172a !important; }}
+    [data-testid="stFormSubmitButton"] button * {{ color:#fff !important; }}
+    .report-grid {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin:16px 0; }}
+    .report-card {{ background:#fff; border:1px solid #e5e7eb; border-radius:20px; padding:18px; box-shadow:0 8px 25px rgba(15,23,42,.06); }}
+    .report-card h3 {{ margin:0 0 12px; color:#111827; font-weight:950; }}
+    .bar-row {{ margin:12px 0; }}
+    .bar-line {{ display:flex; justify-content:space-between; gap:10px; color:#111827; font-weight:850; font-size:13px; margin-bottom:6px; }}
+    .bar-track {{ background:#f1f5f9; height:12px; border-radius:999px; overflow:hidden; border:1px solid #e2e8f0; }}
+    .bar-fill {{ background:#0f172a; height:100%; border-radius:999px; }}
+    .empty-chart {{ background:#fff; border:1px dashed #cbd5e1; border-radius:18px; padding:26px; color:#64748b; font-weight:800; text-align:center; }}
+    @media (min-width: 1500px) {{ .product-img-wrap {{ height:145px !important; }} .product-name {{ font-size:16px !important; }} }}
+    @media (max-width: 1200px) {{ .report-grid {{ grid-template-columns:1fr; }} }}
+    @media (max-width: 900px) {{
+        .product-card {{ min-height:auto !important; }}
+        .product-img-wrap {{ height:180px !important; }}
+        .report-grid {{ grid-template-columns:1fr; }}
+    }}
+
     </style>
     """, unsafe_allow_html=True)
 
@@ -847,7 +879,7 @@ def sidebar_nav():
 # ============================================================
 # COMPONENTES PRODUCTO / RECIBO / PDF
 # ============================================================
-def product_card_html(r, show_cost=False, show_stock=True, whatsapp=False):
+def product_card_html(r, show_cost=False, show_stock=True, whatsapp=False, show_desc=False):
     img_candidates = product_image_candidates(r)
     img = img_candidates[0] if img_candidates else ""
     stock = float(r.get("stock_actual") or 0)
@@ -857,6 +889,7 @@ def product_card_html(r, show_cost=False, show_stock=True, whatsapp=False):
         chip_stock = f"<span class='chip {'chip-ok' if stock > stock_min else 'chip-red'}'>Stock {num(stock)}</span>"
     chip_cost = f"<span class='chip chip-dark'>Costo {money(r.get('costo_unitario'))}</span>" if show_cost else ""
     desc = esc(str(r.get("descripcion") or "")[:120])
+    desc_html = f"<div class='product-desc'>{desc}</div>" if show_desc and desc else ""
     img_html = f"<img class='product-img' src='{esc(img)}' onerror=\"this.style.display='none';this.parentElement.classList.add('no-img');\">" if img else ""
     wa = f"<a href='{esc(wa_link(r.get('nombre_producto')))}' target='_blank' style='text-decoration:none'><div class='chip chip-dark' style='text-align:center;width:100%;box-sizing:border-box;margin-top:8px'>💬 Consultar por WhatsApp</div></a>" if whatsapp else ""
     return f"""
@@ -864,7 +897,7 @@ def product_card_html(r, show_cost=False, show_stock=True, whatsapp=False):
       <div class='product-img-wrap'>{img_html}</div>
       <div class='product-name'>{esc(r.get('nombre_producto'))}</div>
       <div class='product-meta'>{esc(r.get('codigo'))} · {esc(r.get('categoria'))}</div>
-      <div class='product-desc'>{desc}</div>
+      {desc_html}
       <div class='product-price'>{money(r.get('precio_venta'))}</div>
       <div>{chip_stock}{chip_cost}</div>
       {wa}
@@ -1423,10 +1456,10 @@ def page_productos():
         if fil.empty:
             st.info("No hay productos.")
         else:
-            cols = st.columns(4)
+            cols = st.columns(5)
             for i, (_, r) in enumerate(fil.iterrows()):
-                with cols[i % 4]:
-                    st.markdown(product_card_html(r, show_cost=is_admin(), show_stock=True), unsafe_allow_html=True)
+                with cols[i % 5]:
+                    st.markdown(product_card_html(r, show_cost=is_admin(), show_stock=True, show_desc=False), unsafe_allow_html=True)
         if not is_admin():
             st.info("Vista de vendedor: puedes consultar productos, precios y stock. La creación y edición quedan reservadas al administrador.")
     if tab2:
@@ -1604,7 +1637,7 @@ def page_catalogo_clientes(public=False):
     cols = st.columns(4)
     for i, (_, r) in enumerate(fil.iterrows()):
         with cols[i % 4]:
-            st.markdown(product_card_html(r, show_cost=False, show_stock=False, whatsapp=True), unsafe_allow_html=True)
+            st.markdown(product_card_html(r, show_cost=False, show_stock=False, whatsapp=True, show_desc=True), unsafe_allow_html=True)
 
 
 def page_inventario():
@@ -2230,57 +2263,137 @@ def page_panel_dueno():
                 st.markdown(f"<span class='chip chip-red'>⚠️ {esc(r['nombre_producto'])} · Stock {num(r['stock_actual'])}</span>", unsafe_allow_html=True)
 
 
+
+def _bar_report_html(df: pd.DataFrame, label_col: str, value_col: str, title: str, limit: int = 10, money_values: bool = True):
+    if df is None or df.empty or value_col not in df.columns:
+        st.markdown(f"<div class='report-card'><h3>{esc(title)}</h3><div class='empty-chart'>Sin datos para mostrar.</div></div>", unsafe_allow_html=True)
+        return
+    data = df.copy().sort_values(value_col, ascending=False).head(limit)
+    maxv = float(data[value_col].max() or 0)
+    rows = []
+    for _, r in data.iterrows():
+        val = float(r.get(value_col) or 0)
+        pct = 0 if maxv <= 0 else max(3, min(100, (val / maxv) * 100))
+        label = esc(r.get(label_col) if pd.notna(r.get(label_col)) else "Sin dato")
+        value = money(val) if money_values else num(val)
+        rows.append(f"""
+        <div class='bar-row'>
+            <div class='bar-line'><span>{label}</span><span>{value}</span></div>
+            <div class='bar-track'><div class='bar-fill' style='width:{pct:.1f}%'></div></div>
+        </div>
+        """)
+    st.markdown(f"<div class='report-card'><h3>{esc(title)}</h3>{''.join(rows)}</div>", unsafe_allow_html=True)
+
+
 def page_reportes():
-    hero("Reportes", "Ventas por fecha, vendedor, producto, método de pago y créditos.", "📈")
+    hero("Reportes", "Control claro por vendedor, producto, fecha, método de pago y créditos.", "📈")
     if not is_admin():
-        st.warning("Solo administrador puede ver reportes."); return
-    c1,c2=st.columns(2)
-    with c1: desde=st.date_input("Desde", peru_today()-timedelta(days=7), key="repd_v256")
-    with c2: hasta=st.date_input("Hasta", peru_today(), key="reph_v256")
-    ventas=ventas_periodo(desde,hasta); detalle=detalle_productos_vendidos(desde,hasta)
+        st.warning("Solo administrador puede ver reportes.")
+        return
+    c1, c2 = st.columns(2)
+    with c1:
+        desde = st.date_input("Desde", peru_today() - timedelta(days=7), key="repd_v257")
+    with c2:
+        hasta = st.date_input("Hasta", peru_today(), key="reph_v257")
+
+    ventas = ventas_periodo(desde, hasta)
+    detalle = detalle_productos_vendidos(desde, hasta)
     if ventas.empty:
-        st.info("No hay ventas en el rango."); return
+        st.info("No hay ventas en el rango seleccionado.")
+        return
+
+    total = float(ventas["total_venta"].sum()) if "total_venta" in ventas.columns else 0
+    cobrado = float(ventas["monto_pagado"].sum()) if "monto_pagado" in ventas.columns else 0
+    credito = float(ventas["saldo_pendiente"].sum()) if "saldo_pendiente" in ventas.columns else 0
+    utilidad = float(detalle["utilidad"].sum()) if detalle is not None and not detalle.empty and "utilidad" in detalle.columns else 0
+    ticket = total / max(len(ventas), 1)
+
+    k1, k2, k3, k4 = st.columns(4)
+    with k1: kpi("Ventas", money(total), f"{len(ventas)} comprobantes")
+    with k2: kpi("Cobrado", money(cobrado), "Ingreso recibido")
+    with k3: kpi("Crédito", money(credito), "Saldo pendiente")
+    with k4: kpi("Ticket prom.", money(ticket), "Promedio por venta")
+
     resumen = _vendor_summary(ventas, detalle)
-    st.subheader("Resumen por vendedor")
+    st.subheader("Ventas por vendedor")
     if not resumen.empty:
         show = resumen.copy()
         show["total_fmt"] = show["total_venta"].apply(money)
         show["cobrado_fmt"] = show["cobrado"].apply(money)
         show["saldo_fmt"] = show["saldo"].apply(money)
+        show["utilidad_fmt"] = show["utilidad"].apply(money)
         show["ticket_fmt"] = show["ticket_promedio"].apply(money)
-        html_table(show, ["vendedor_nombre","comprobantes","total_fmt","cobrado_fmt","saldo_fmt","ticket_fmt"], ["Vendedor","Ventas","Total","Cobrado","Crédito","Ticket prom."], 100)
-        fig = px.bar(resumen, x="vendedor_nombre", y="total_venta", color="vendedor_nombre", title="Ventas por vendedor")
-        fig.update_layout(template="plotly_white", plot_bgcolor="white", paper_bgcolor="white", font_color="#111827", showlegend=False, margin=dict(l=20,r=20,t=50,b=20))
-        fig.update_xaxes(color="#111827", gridcolor="#e5e7eb")
-        fig.update_yaxes(color="#111827", gridcolor="#e5e7eb")
-        st.plotly_chart(fig, use_container_width=True)
+        html_table(show, ["vendedor_nombre", "comprobantes", "total_fmt", "cobrado_fmt", "saldo_fmt", "utilidad_fmt", "ticket_fmt"], ["Vendedor", "Ventas", "Total", "Cobrado", "Crédito", "Utilidad", "Ticket"], 50)
+        _bar_report_html(resumen, "vendedor_nombre", "total_venta", "Ranking visual por vendedor", 8, True)
+
     ventas2 = ventas.copy()
-    ventas2["dia"] = ventas2["fecha"].apply(lambda x: _to_peru_dt(x).date() if _to_peru_dt(x) else pd.to_datetime(x).date())
+    ventas2["dia"] = ventas2["fecha"].apply(lambda x: _to_peru_dt(x).strftime("%d/%m") if _to_peru_dt(x) else str(x)[:10])
     diario = ventas2.groupby("dia", as_index=False)["total_venta"].sum()
-    fig1 = px.line(diario, x="dia", y="total_venta", markers=True, title="Ventas por día")
-    fig1.update_traces(line_color="#E8A06D", marker_color="#B96D45")
-    fig1.update_layout(template="plotly_white", plot_bgcolor="white", paper_bgcolor="white", font_color="#111827", margin=dict(l=20,r=20,t=50,b=20))
-    fig1.update_xaxes(color="#111827", gridcolor="#e5e7eb")
-    fig1.update_yaxes(color="#111827", gridcolor="#e5e7eb")
-    st.plotly_chart(fig1, use_container_width=True)
-    a,b=st.columns(2)
-    with a:
-        metodo=ventas.groupby("metodo_pago", as_index=False)["total_venta"].sum()
-        fig2=px.pie(metodo, names="metodo_pago", values="total_venta", title="Métodos de pago")
-        fig2.update_layout(template="plotly_white", paper_bgcolor="white", font_color="#111827", margin=dict(l=20,r=20,t=50,b=20))
-        st.plotly_chart(fig2, use_container_width=True)
-    with b:
-        if not detalle.empty:
-            top = detalle.groupby("producto", as_index=False)["total_vendido"].sum().sort_values("total_vendido", ascending=False).head(10)
-            fig3=px.bar(top, x="total_vendido", y="producto", orientation="h", title="Productos más vendidos")
-            fig3.update_layout(template="plotly_white", plot_bgcolor="white", paper_bgcolor="white", font_color="#111827", margin=dict(l=20,r=20,t=50,b=20))
-            fig3.update_xaxes(color="#111827", gridcolor="#e5e7eb")
-            fig3.update_yaxes(color="#111827", gridcolor="#e5e7eb")
-            st.plotly_chart(fig3, use_container_width=True)
-    st.subheader("Detalle de productos vendidos")
-    if not detalle.empty:
-        dd=detalle.copy(); dd["total"]=dd["total_vendido"].apply(money); dd["utilidad_fmt"]=dd["utilidad"].apply(money)
-        html_table(dd, ["vendedor","producto","cantidad","total","utilidad_fmt"], ["Vendedor","Producto","Cantidad","Total","Utilidad"], 200)
+    metodo = ventas2.groupby("metodo_pago", as_index=False)["total_venta"].sum() if "metodo_pago" in ventas2.columns else pd.DataFrame()
+    col_a, col_b = st.columns(2)
+    with col_a:
+        _bar_report_html(diario, "dia", "total_venta", "Ventas por día", 10, True)
+    with col_b:
+        _bar_report_html(metodo, "metodo_pago", "total_venta", "Métodos de pago", 8, True)
+
+    st.subheader("Productos vendidos")
+    if detalle is not None and not detalle.empty:
+        top = detalle.groupby("producto", as_index=False).agg(total_vendido=("total_vendido", "sum"), cantidad=("cantidad", "sum"), utilidad=("utilidad", "sum")).sort_values("total_vendido", ascending=False)
+        _bar_report_html(top, "producto", "total_vendido", "Productos con mayor venta", 10, True)
+        top_show = top.copy()
+        top_show["total_fmt"] = top_show["total_vendido"].apply(money)
+        top_show["utilidad_fmt"] = top_show["utilidad"].apply(money)
+        html_table(top_show, ["producto", "cantidad", "total_fmt", "utilidad_fmt"], ["Producto", "Cantidad", "Total vendido", "Utilidad"], 100)
+    else:
+        st.info("No hay detalle de productos vendidos.")
+
+    st.subheader("Detalle de comprobantes")
+    detv = ventas.copy()
+    detv["fecha_fmt"] = detv["fecha"].apply(lambda x: fmt_dt_peru(x))
+    detv["total_fmt"] = detv["total_venta"].apply(money)
+    detv["pagado_fmt"] = detv["monto_pagado"].apply(money)
+    detv["saldo_fmt"] = detv["saldo_pendiente"].apply(money)
+    html_table(detv, ["comprobante", "fecha_fmt", "cliente", "vendedor_nombre", "metodo_pago", "total_fmt", "pagado_fmt", "saldo_fmt", "estado_pago"], ["Comprobante", "Fecha", "Cliente", "Vendedor", "Pago", "Total", "Pagado", "Saldo", "Estado"], 200)
+
+
+
+def inject_css_v25_7():
+    st.markdown("""
+    <style>
+      /* V25.7 final override: botones negros y visual compacto */
+      .stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"], [data-testid="stFormSubmitButton"] button, button[data-testid="baseButton-primary"] {
+        background:#0f172a !important;
+        color:#ffffff !important;
+        border:1px solid #0f172a !important;
+        box-shadow:0 8px 18px rgba(15,23,42,.18) !important;
+      }
+      .stButton > button[kind="primary"] *, .stDownloadButton > button[kind="primary"] *, [data-testid="stFormSubmitButton"] button *, button[data-testid="baseButton-primary"] * {
+        color:#ffffff !important; opacity:1 !important;
+      }
+      .stButton > button[kind="primary"] p, .stDownloadButton > button[kind="primary"] p, [data-testid="stFormSubmitButton"] button p, button[data-testid="baseButton-primary"] p {
+        color:#ffffff !important; opacity:1 !important;
+      }
+      .product-card { min-height:265px !important; padding:14px !important; border-radius:18px !important; gap:6px !important; }
+      .product-img-wrap { height:132px !important; margin-bottom:4px !important; border-radius:14px !important; }
+      .product-name { font-size:15px !important; line-height:1.25 !important; min-height:38px !important; }
+      .product-meta { font-size:12px !important; line-height:1.28 !important; }
+      .product-price { font-size:23px !important; margin-top:4px !important; }
+      .chip { padding:6px 10px !important; font-size:11px !important; }
+      .report-card { background:#fff; border:1px solid #e5e7eb; border-radius:20px; padding:18px; box-shadow:0 8px 25px rgba(15,23,42,.06); }
+      .report-card h3 { margin:0 0 12px; color:#111827; font-weight:950; }
+      .bar-row { margin:12px 0; }
+      .bar-line { display:flex; justify-content:space-between; gap:10px; color:#111827; font-weight:850; font-size:13px; margin-bottom:6px; }
+      .bar-track { background:#f1f5f9; height:12px; border-radius:999px; overflow:hidden; border:1px solid #e2e8f0; }
+      .bar-fill { background:#0f172a; height:100%; border-radius:999px; }
+      .empty-chart { background:#fff; border:1px dashed #cbd5e1; border-radius:18px; padding:26px; color:#64748b; font-weight:800; text-align:center; }
+      @media (min-width: 1500px) { .product-img-wrap { height:145px !important; } .product-name { font-size:16px !important; } }
+      @media (max-width: 900px) {
+        .product-card { min-height:auto !important; }
+        .product-img-wrap { height:180px !important; }
+        .block-container { padding-left:.5rem !important; padding-right:.5rem !important; }
+      }
+    </style>
+    """, unsafe_allow_html=True)
 
 # ============================================================
 # ARRANQUE
@@ -2295,6 +2408,7 @@ except Exception as e:
 inject_css()
 inject_css_v25_5()
 inject_css_v25_6()
+inject_css_v25_7()
 
 # Catálogo público por URL
 try:
