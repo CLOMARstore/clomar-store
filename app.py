@@ -28,7 +28,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V25.8 Caja diaria + créditos por cliente + reportes corregidos"
+APP_VERSION = "V25.9 Caja por método + reinicio seguro + menú agrupado"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -2860,6 +2860,425 @@ def inject_css_v25_8():
     """, unsafe_allow_html=True)
 
 
+
+
+# ============================================================
+# V25.9 - CAJA POR MÉTODO + REINICIO SEGURO + MENÚ AGRUPADO
+# ============================================================
+def inject_css_v25_9():
+    st.markdown("""
+    <style>
+      :root { --clomar-dark:#0f172a; --clomar-warm:#E4A39A; --clomar-warm2:#F4C2B8; }
+      .nav-section { font-size:11px; font-weight:950; color:#94a3b8; letter-spacing:.08em; text-transform:uppercase; margin:16px 0 7px 0; }
+      section[data-testid="stSidebar"] .stButton button { justify-content:flex-start !important; border-radius:14px !important; padding:9px 12px !important; font-weight:850 !important; }
+      section[data-testid="stSidebar"] .stButton button[kind="primary"] { background:#0f172a !important; color:#fff !important; border-color:#0f172a !important; }
+      section[data-testid="stSidebar"] .stButton button[kind="primary"] * { color:#fff !important; }
+      .stButton > button[kind="primary"], [data-testid="stFormSubmitButton"] button, button[data-testid="baseButton-primary"] {
+        background:#0f172a !important; color:#ffffff !important; border-color:#0f172a !important;
+      }
+      .stButton > button[kind="primary"] *, [data-testid="stFormSubmitButton"] button * { color:#ffffff !important; opacity:1 !important; }
+      .method-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin:14px 0; }
+      .method-card { background:#fff; border:1px solid #e5e7eb; border-radius:18px; padding:14px; box-shadow:0 8px 22px rgba(15,23,42,.05); }
+      .method-card .m-label { color:#64748b; font-size:12px; font-weight:950; text-transform:uppercase; letter-spacing:.05em; }
+      .method-card .m-value { color:#0f172a; font-size:22px; font-weight:950; margin-top:6px; }
+      .report-card, .report-card * { color:#111827 !important; }
+      .bar-track { background:#e5e7eb !important; }
+      .bar-fill { background:#0f172a !important; }
+      .bar-line span { color:#111827 !important; }
+      .clomar-table td, .clomar-table th { color:#111827 !important; }
+      .chip-red { background:#fff7ed !important; color:#9a3412 !important; border-color:#fed7aa !important; }
+      .product-card { min-height:390px !important; padding:16px !important; }
+      .product-img-wrap { height:145px !important; }
+      .product-desc { display:none !important; }
+      @media (min-width: 1500px) { .products-grid { grid-template-columns:repeat(5,minmax(0,1fr)) !important; gap:14px !important; } }
+      @media (max-width: 1200px) { .method-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+      @media (max-width: 700px) { .method-grid { grid-template-columns:1fr; } }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def sidebar_nav():
+    u = current_user()
+    cfg = cached_settings()
+    logo = cfg.get("icon_url") or cfg.get("logo_url")
+    store = cfg.get("store_name") or APP_NAME_DEFAULT
+    if logo:
+        st.sidebar.markdown(f"<div class='sidebar-logo'><img src='{esc(logo)}'><div class='sidebar-title'>{esc(store)}</div></div>", unsafe_allow_html=True)
+    else:
+        st.sidebar.markdown(f"### 🛍️ {store}")
+    st.sidebar.caption(f"{u['nombre']} · {u['rol']}")
+
+    if "selected_nav" not in st.session_state:
+        st.session_state.selected_nav = "📊 Panel dueño" if is_admin() else "🧾 Ventas"
+
+    def nav_button(label: str):
+        active = st.session_state.selected_nav == label
+        if st.sidebar.button(label, key="nav_" + hashlib.md5(label.encode()).hexdigest(), use_container_width=True, type="primary" if active else "secondary"):
+            st.session_state.selected_nav = label
+            st.rerun()
+
+    if is_admin():
+        st.sidebar.markdown("<div class='nav-section'>Gestionar negocio</div>", unsafe_allow_html=True)
+        for label in ["📊 Panel dueño", "🧾 Ventas", "💳 Créditos", "💰 Caja", "📈 Reportes"]:
+            nav_button(label)
+        st.sidebar.markdown("<div class='nav-section'>Productos e inventario</div>", unsafe_allow_html=True)
+        for label in ["📦 Productos", "📘 Catálogo clientes", "📊 Inventario", "📥 Ingreso mercadería"]:
+            nav_button(label)
+        st.sidebar.markdown("<div class='nav-section'>Contactos</div>", unsafe_allow_html=True)
+        nav_button("👥 Clientes")
+        st.sidebar.markdown("<div class='nav-section'>Control de app</div>", unsafe_allow_html=True)
+        for label in ["🔐 Usuarios", "⚙️ Configuración", "💾 Backup", "📲 Instalar app", "☁️ Estado nube"]:
+            nav_button(label)
+    else:
+        st.sidebar.markdown("<div class='nav-section'>Venta y catálogo</div>", unsafe_allow_html=True)
+        for label in ["🧾 Ventas", "👥 Clientes", "📦 Productos", "📘 Catálogo clientes", "📲 Instalar app"]:
+            nav_button(label)
+
+    st.sidebar.divider()
+    if st.sidebar.button("Cerrar sesión", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
+    return st.session_state.selected_nav
+
+
+def _money_or_zero(v):
+    try:
+        return money(float(v or 0))
+    except Exception:
+        return money(0)
+
+
+def _method_cards(df: pd.DataFrame, amount_col: str = "monto", label_col: str = "metodo_pago"):
+    base_methods = ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Mixto", "Crédito"]
+    if df is None or df.empty:
+        items = [(m, 0) for m in base_methods]
+    else:
+        tmp = df.copy()
+        tmp[label_col] = tmp[label_col].fillna("Sin método").astype(str).replace("", "Sin método")
+        tmp[amount_col] = pd.to_numeric(tmp[amount_col], errors="coerce").fillna(0)
+        grouped = tmp.groupby(label_col)[amount_col].sum().to_dict()
+        ordered = base_methods + [k for k in grouped.keys() if k not in base_methods]
+        items = [(m, grouped.get(m, 0)) for m in ordered if grouped.get(m, 0) != 0 or m in base_methods]
+    cards = []
+    for m, val in items[:7]:
+        cards.append(f"<div class='method-card'><div class='m-label'>{esc(m)}</div><div class='m-value'>{money(val)}</div></div>")
+    st.markdown("<div class='method-grid'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
+
+
+def _bar_report_html(df: pd.DataFrame, label_col: str, value_col: str, title: str, limit: int = 10, money_values: bool = True):
+    if df is None or df.empty or value_col not in df.columns:
+        st.markdown(f"<div class='report-card'><h3>{esc(title)}</h3><div class='empty-chart'>Sin datos para mostrar.</div></div>", unsafe_allow_html=True)
+        return
+    data = df.copy()
+    data[value_col] = pd.to_numeric(data[value_col], errors="coerce").fillna(0)
+    data = data.sort_values(value_col, ascending=False).head(limit)
+    maxv = float(data[value_col].max() or 0)
+    rows = []
+    for _, r in data.iterrows():
+        val = float(r.get(value_col) or 0)
+        pct = 0 if maxv <= 0 else max(4, min(100, (val / maxv) * 100))
+        label_raw = r.get(label_col)
+        label = esc(label_raw if pd.notna(label_raw) and str(label_raw).strip() else "Sin dato")
+        value = money(val) if money_values else num(val)
+        rows.append("<div class='bar-row'>" +
+                    f"<div class='bar-line'><span>{label}</span><span>{value}</span></div>" +
+                    f"<div class='bar-track'><div class='bar-fill' style='width:{pct:.1f}%'></div></div>" +
+                    "</div>")
+    st.markdown(f"<div class='report-card'><h3>{esc(title)}</h3>{''.join(rows)}</div>", unsafe_allow_html=True)
+
+
+def page_panel_dueno():
+    hero("Panel del dueño", "Resumen ejecutivo: ventas, caja, créditos, vendedores y stock crítico.", "📊")
+    if not is_admin():
+        st.warning("Solo administrador puede ver el panel del dueño.")
+        return
+    d1, d2 = st.columns(2)
+    with d1:
+        desde = st.date_input("Desde", peru_today(), key="panel_desde_v259")
+    with d2:
+        hasta = st.date_input("Hasta", peru_today(), key="panel_hasta_v259")
+    ventas = ventas_periodo(desde, hasta)
+    detalle = detalle_productos_vendidos(desde, hasta)
+    if ventas.empty:
+        total = cobrado = credito = ticket = utilidad = 0
+    else:
+        ventas["total_venta"] = pd.to_numeric(ventas["total_venta"], errors="coerce").fillna(0)
+        ventas["monto_pagado"] = pd.to_numeric(ventas["monto_pagado"], errors="coerce").fillna(0)
+        ventas["saldo_pendiente"] = pd.to_numeric(ventas["saldo_pendiente"], errors="coerce").fillna(0)
+        total = ventas["total_venta"].sum(); cobrado = ventas["monto_pagado"].sum(); credito = ventas["saldo_pendiente"].sum(); ticket = total / max(len(ventas), 1)
+        utilidad = float(pd.to_numeric(detalle.get("utilidad", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()) if not detalle.empty else 0
+    a,b,c,d = st.columns(4)
+    with a: kpi("Ventas", money(total), f"{len(ventas)} comprobantes")
+    with b: kpi("Cobrado", money(cobrado), "Ingresos efectivos")
+    with c: kpi("Crédito", money(credito), "Por cobrar")
+    with d: kpi("Utilidad estimada", money(utilidad), "Según costo registrado")
+
+    if not ventas.empty:
+        vend = ventas.groupby("vendedor_nombre", as_index=False).agg(ventas=("id_venta","count"), total=("total_venta","sum"), cobrado=("monto_pagado","sum"), credito=("saldo_pendiente","sum"))
+        if not detalle.empty:
+            util = detalle.groupby("vendedor", as_index=False)["utilidad"].sum().rename(columns={"vendedor":"vendedor_nombre"})
+            vend = vend.merge(util, on="vendedor_nombre", how="left")
+        else:
+            vend["utilidad"] = 0
+        st.subheader("Ventas por vendedor")
+        _bar_report_html(vend, "vendedor_nombre", "total", "Control por vendedor", 8, True)
+        show = vend.copy()
+        for col in ["total","cobrado","credito","utilidad"]:
+            show[col+"_fmt"] = show[col].apply(money)
+        html_table(show, ["vendedor_nombre","ventas","total_fmt","cobrado_fmt","credito_fmt","utilidad_fmt"], ["Vendedor","Ventas","Total","Cobrado","Crédito","Utilidad"], 20)
+    else:
+        st.info("Aún no hay ventas en el rango seleccionado.")
+
+    c1,c2 = st.columns([1.3, .9])
+    with c1:
+        st.subheader("Ventas recientes")
+        recent = ventas.head(12).copy()
+        if not recent.empty:
+            recent["fecha_fmt"] = recent["fecha"].apply(fmt_dt)
+            recent["total_fmt"] = recent["total_venta"].apply(money)
+            html_table(recent, ["comprobante","fecha_fmt","cliente","vendedor_nombre","metodo_pago","total_fmt"], ["Comprobante","Fecha Perú","Cliente","Vendedor","Pago","Total"], 12)
+        else:
+            st.info("Sin ventas recientes.")
+    with c2:
+        st.subheader("Stock crítico")
+        prod = productos_con_stock()
+        if not prod.empty:
+            crit = prod[pd.to_numeric(prod["stock_actual"], errors="coerce").fillna(0) <= pd.to_numeric(prod["stock_minimo"], errors="coerce").fillna(0)].head(12)
+            if crit.empty:
+                st.success("Sin stock crítico.")
+            else:
+                for _, r in crit.iterrows():
+                    st.markdown(f"<span class='chip chip-red'>⚠ {esc(r['nombre_producto'])} · Stock {num(r['stock_actual'])}</span>", unsafe_allow_html=True)
+        else:
+            st.info("Sin productos registrados.")
+
+
+def page_reportes():
+    hero("Reportes", "Ventas por fecha, vendedor, producto y método de pago.", "📈")
+    if not is_admin():
+        st.warning("Solo administrador puede ver reportes.")
+        return
+    d1, d2 = st.columns(2)
+    with d1:
+        desde = st.date_input("Desde", peru_today() - timedelta(days=7), key="rep_desde_v259")
+    with d2:
+        hasta = st.date_input("Hasta", peru_today(), key="rep_hasta_v259")
+    ventas = ventas_periodo(desde, hasta)
+    detalle = detalle_productos_vendidos(desde, hasta)
+    if ventas.empty:
+        st.info("No hay ventas para el rango seleccionado.")
+        return
+    ventas["total_venta"] = pd.to_numeric(ventas["total_venta"], errors="coerce").fillna(0)
+    ventas["monto_pagado"] = pd.to_numeric(ventas["monto_pagado"], errors="coerce").fillna(0)
+    ventas["saldo_pendiente"] = pd.to_numeric(ventas["saldo_pendiente"], errors="coerce").fillna(0)
+    a,b,c,d = st.columns(4)
+    with a: kpi("Total vendido", money(ventas["total_venta"].sum()), f"{len(ventas)} comprobantes")
+    with b: kpi("Cobrado", money(ventas["monto_pagado"].sum()), "Ingresos recibidos")
+    with c: kpi("Crédito", money(ventas["saldo_pendiente"].sum()), "Saldo por cobrar")
+    with d: kpi("Ticket promedio", money(ventas["total_venta"].sum()/max(len(ventas),1)), "Promedio")
+
+    vend = ventas.groupby("vendedor_nombre", as_index=False).agg(total=("total_venta","sum"), cobrado=("monto_pagado","sum"), credito=("saldo_pendiente","sum"), ventas=("id_venta","count"))
+    metodo = ventas.groupby("metodo_pago", as_index=False).agg(total=("total_venta","sum"), cobrado=("monto_pagado","sum"), credito=("saldo_pendiente","sum"), ventas=("id_venta","count"))
+    vday = ventas.copy()
+    vday["dia"] = pd.to_datetime(vday["fecha"], errors="coerce").dt.strftime("%d/%m")
+    dia = vday.groupby("dia", as_index=False)["total_venta"].sum().rename(columns={"total_venta":"total"})
+
+    st.markdown("<div class='report-grid'>", unsafe_allow_html=True)
+    _bar_report_html(vend, "vendedor_nombre", "total", "Ventas por vendedor", 10, True)
+    _bar_report_html(metodo, "metodo_pago", "total", "Métodos de pago", 10, True)
+    _bar_report_html(dia, "dia", "total", "Ventas por día", 14, True)
+    if not detalle.empty:
+        top = detalle.copy()
+        top["total_vendido"] = pd.to_numeric(top["total_vendido"], errors="coerce").fillna(0)
+        top = top.groupby("producto", as_index=False)["total_vendido"].sum()
+        _bar_report_html(top, "producto", "total_vendido", "Productos vendidos", 10, True)
+    else:
+        _bar_report_html(pd.DataFrame(), "producto", "total_vendido", "Productos vendidos", 10, True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.subheader("Detalle de comprobantes")
+    detv = ventas.copy()
+    detv["fecha_fmt"] = detv["fecha"].apply(fmt_dt)
+    for col in ["total_venta", "monto_pagado", "saldo_pendiente"]:
+        detv[col+"_fmt"] = detv[col].apply(money)
+    html_table(detv, ["comprobante","fecha_fmt","cliente","vendedor_nombre","metodo_pago","total_venta_fmt","monto_pagado_fmt","saldo_pendiente_fmt","estado_pago"], ["Comprobante","Fecha","Cliente","Vendedor","Método","Total","Pagado","Saldo","Estado"], 200)
+
+
+def page_caja():
+    hero("Caja", "Cierre diario, ingresos, egresos, pagos por método y diferencias.", "💰")
+    if not is_admin():
+        st.warning("Solo administrador puede ver caja.")
+        return
+    ensure_v25_8_schema()
+    c1,c2,c3 = st.columns([.9,.9,1.2])
+    with c1:
+        f = st.date_input("Fecha de caja", peru_today(), key="caja_fecha_v259")
+    with c2:
+        tipo_filtro = st.selectbox("Tipo", ["Todos", "Ingreso", "Egreso"], key="caja_tipo_v259")
+    with c3:
+        metodo_filtro = st.selectbox("Método de pago", ["Todos", "Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta", "Mixto", "Crédito"], key="caja_metodo_v259")
+    caja = query_df("SELECT * FROM caja WHERE DATE(fecha)=:f AND COALESCE(anulada,0)=0 ORDER BY fecha DESC", {"f": str(f)})
+    ventas = ventas_periodo(f, f)
+    if not caja.empty:
+        caja["monto"] = pd.to_numeric(caja["monto"], errors="coerce").fillna(0)
+    if not ventas.empty:
+        for col in ["total_venta","monto_pagado","saldo_pendiente"]:
+            ventas[col] = pd.to_numeric(ventas[col], errors="coerce").fillna(0)
+
+    ingresos = float(caja[caja["tipo"].astype(str).str.lower().eq("ingreso")]["monto"].sum()) if not caja.empty else 0
+    egresos = float(caja[caja["tipo"].astype(str).str.lower().eq("egreso")]["monto"].sum()) if not caja.empty else 0
+    venta_total = float(ventas["total_venta"].sum()) if not ventas.empty else 0
+    cobrado = float(ventas["monto_pagado"].sum()) if not ventas.empty else 0
+    credito = float(ventas["saldo_pendiente"].sum()) if not ventas.empty else 0
+    a,b,c,d = st.columns(4)
+    with a: kpi("Ventas del día", money(venta_total), f"{len(ventas)} comprobantes")
+    with b: kpi("Cobrado", money(cobrado), "Contado + abonos")
+    with c: kpi("Crédito generado", money(credito), "Pendiente")
+    with d: kpi("Caja neta", money(ingresos-egresos), "Ingresos - egresos")
+
+    st.subheader("Pagos por método")
+    if ventas.empty:
+        _method_cards(pd.DataFrame(columns=["metodo_pago","monto_pagado"]), "monto_pagado", "metodo_pago")
+    else:
+        _method_cards(ventas.rename(columns={"monto_pagado":"monto"}), "monto", "metodo_pago")
+
+    st.subheader("Movimiento de caja por método")
+    if caja.empty:
+        st.info("No hay movimientos de caja en la fecha.")
+    else:
+        mov = caja.copy()
+        if tipo_filtro != "Todos":
+            mov = mov[mov["tipo"].astype(str).eq(tipo_filtro)]
+        if metodo_filtro != "Todos":
+            mov = mov[mov["metodo_pago"].astype(str).eq(metodo_filtro)]
+        if mov.empty:
+            st.info("No hay movimientos con esos filtros.")
+        else:
+            piv = mov.pivot_table(index="metodo_pago", columns="tipo", values="monto", aggfunc="sum", fill_value=0).reset_index()
+            for col in ["Ingreso", "Egreso"]:
+                if col not in piv.columns: piv[col] = 0
+            piv["Neto"] = piv["Ingreso"] - piv["Egreso"]
+            show = piv.copy()
+            for col in ["Ingreso", "Egreso", "Neto"]:
+                show[col+"_fmt"] = show[col].apply(money)
+            html_table(show, ["metodo_pago","Ingreso_fmt","Egreso_fmt","Neto_fmt"], ["Método","Ingresos","Egresos","Neto"], 20)
+
+    efectivo_sistema = 0
+    if not caja.empty:
+        tmp = caja.copy()
+        efectivo_ing = tmp[(tmp["metodo_pago"].astype(str).str.lower().eq("efectivo")) & (tmp["tipo"].astype(str).str.lower().eq("ingreso"))]["monto"].sum()
+        efectivo_egr = tmp[(tmp["metodo_pago"].astype(str).str.lower().eq("efectivo")) & (tmp["tipo"].astype(str).str.lower().eq("egreso"))]["monto"].sum()
+        efectivo_sistema = float(efectivo_ing - efectivo_egr)
+    st.subheader("Cierre diario")
+    with st.form("form_cierre_caja_v259"):
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            efectivo_contado = st.number_input("Efectivo contado físico", min_value=0.0, value=float(max(efectivo_sistema, 0)), step=1.0)
+        with cc2:
+            obs = st.text_input("Observación", placeholder="Ej: cierre correcto, faltante, sobrante")
+        diferencia = efectivo_contado - efectivo_sistema
+        st.markdown(f"<div class='card'><b>Efectivo sistema:</b> {money(efectivo_sistema)} &nbsp; <b>Diferencia:</b> <span class='chip {'chip-ok' if abs(diferencia)<0.01 else 'chip-red'}'>{money(diferencia)}</span></div>", unsafe_allow_html=True)
+        guardar = st.form_submit_button("Guardar cierre diario", type="primary", use_container_width=True)
+    if guardar:
+        exec_sql("""
+            INSERT INTO cierres_caja (fecha_cierre,total_ingresos,total_egresos,saldo_sistema,efectivo_sistema,efectivo_contado,diferencia,id_usuario,observacion)
+            VALUES (:f,:ing,:egr,:neto,:efs,:efc,:dif,:uid,:obs)
+        """, {"f": str(f), "ing": ingresos, "egr": egresos, "neto": ingresos-egresos, "efs": efectivo_sistema, "efc": efectivo_contado, "dif": diferencia, "uid": current_user()["id_usuario"], "obs": obs})
+        st.success("Cierre diario guardado.")
+
+    st.subheader("Detalle de movimientos")
+    if caja.empty:
+        st.info("Sin movimientos.")
+    else:
+        det = caja.copy()
+        if tipo_filtro != "Todos": det = det[det["tipo"].astype(str).eq(tipo_filtro)]
+        if metodo_filtro != "Todos": det = det[det["metodo_pago"].astype(str).eq(metodo_filtro)]
+        det["fecha_fmt"] = det["fecha"].apply(fmt_dt)
+        det["monto_fmt"] = det["monto"].apply(money)
+        html_table(det, ["fecha_fmt","tipo","concepto","metodo_pago","monto_fmt","referencia","observacion"], ["Fecha","Tipo","Concepto","Método","Monto","Referencia","Obs."], 200)
+
+
+def _delete_if_exists(conn, table: str):
+    try:
+        conn.execute(text(f"DELETE FROM {table}"))
+    except Exception:
+        pass
+
+
+def _reset_business_data(delete_categories=False):
+    """Reinicia operación, conservando usuarios y configuración. Por defecto conserva categorías."""
+    tables = [
+        "pagos_credito", "cierres_caja", "detalle_ventas", "ventas", "caja",
+        "movimientos_stock", "compras", "productos", "proveedores", "clientes"
+    ]
+    if delete_categories:
+        tables.append("categorias")
+    with ENGINE.begin() as conn:
+        for t in tables:
+            _delete_if_exists(conn, t)
+        # Reinicio de identificadores cuando sea posible.
+        identity_cols = {
+            "pagos_credito":"id_pago", "cierres_caja":"id_cierre", "detalle_ventas":"id_detalle",
+            "ventas":"id_venta", "caja":"id_caja", "movimientos_stock":"id_movimiento",
+            "compras":"id_compra", "productos":"id_producto", "proveedores":"id_proveedor", "clientes":"id_cliente", "categorias":"id_categoria"
+        }
+        if IS_POSTGRES:
+            for t, col in identity_cols.items():
+                if t in tables:
+                    try:
+                        conn.execute(text(f"ALTER TABLE {t} ALTER COLUMN {col} RESTART WITH 1"))
+                    except Exception:
+                        pass
+        elif IS_LOCAL_SQLITE:
+            try:
+                for t in tables:
+                    conn.execute(text("DELETE FROM sqlite_sequence WHERE name=:t"), {"t": t})
+            except Exception:
+                pass
+    clear_product_cache()
+    clear_report_cache()
+    try:
+        cached_settings.clear()
+    except Exception:
+        pass
+
+
+def page_backup():
+    hero("Backup / reinicio seguro", "Respalda datos y reinicia la operación cuando quieras empezar desde cero.", "💾")
+    if not is_admin():
+        st.warning("Solo administrador puede descargar backups o reiniciar datos.")
+        return
+    tablas=["usuarios","categorias","clientes","proveedores","productos","movimientos_stock","ventas","detalle_ventas","compras","caja","pagos_credito","cierres_caja","ajustes"]
+    buffer=io.BytesIO()
+    with zipfile.ZipFile(buffer,"w",zipfile.ZIP_DEFLATED) as z:
+        for t in tablas:
+            try:
+                df=query_df(f"SELECT * FROM {t}")
+                z.writestr(f"{t}.csv", df.to_csv(index=False).encode("utf-8-sig"))
+            except Exception:
+                pass
+    buffer.seek(0)
+    st.download_button("Descargar backup ZIP antes de reiniciar", data=buffer, file_name=f"clomar_store_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip", mime="application/zip", type="primary", use_container_width=True)
+
+    st.markdown("""
+    <div class='card'>
+      <h3>Reiniciar negocio desde cero</h3>
+      <p>Esta opción elimina ventas, boletas/comprobantes, créditos, caja, productos, stock, clientes y proveedores. Conserva usuarios, configuración y categorías, salvo que marques borrar categorías.</p>
+      <p><b>Úsalo solo después de descargar backup.</b></p>
+    </div>
+    """, unsafe_allow_html=True)
+    with st.form("reset_negocio_v259"):
+        borrar_categorias = st.checkbox("También borrar categorías", value=False)
+        confirm = st.text_input("Para confirmar escribe: REINICIAR_CLOMAR")
+        reset = st.form_submit_button("Reiniciar datos operativos", type="primary", use_container_width=True)
+    if reset:
+        if confirm.strip() != "REINICIAR_CLOMAR":
+            st.error("Confirmación incorrecta. No se eliminó nada.")
+        else:
+            _reset_business_data(delete_categories=borrar_categorias)
+            st.success("Datos operativos reiniciados. Puedes cargar productos desde cero.")
+            st.rerun()
+
 # ============================================================
 # ARRANQUE
 # ============================================================
@@ -2875,6 +3294,7 @@ inject_css_v25_5()
 inject_css_v25_6()
 inject_css_v25_7()
 inject_css_v25_8()
+inject_css_v25_9()
 
 # Catálogo público por URL
 try:
