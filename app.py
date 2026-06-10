@@ -5,6 +5,7 @@ import zipfile
 import hashlib
 import secrets
 from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 from urllib.parse import quote
 
 import pandas as pd
@@ -27,7 +28,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V25.5 POS cálido + importación segura + ticket térmico"
+APP_VERSION = "V25.6 Panel vendedor + ticket cálido + responsive"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -296,7 +297,7 @@ def init_db():
         "telefono": "",
         "direccion": "",
         "mensaje_comprobante": "Gracias por su compra.",
-        "color_principal": "#E49A86",
+        "color_principal": "#E8A06D",
         "catalogo_base_url": "https://clomar-store.streamlit.app",
         "imagenes_base_url": "https://raw.githubusercontent.com/CLOMARstore/clomar-store/main/imagenes_productos",
         "whatsapp_codigo_pais": "51",
@@ -343,6 +344,53 @@ def num(x) -> str:
         return f"{float(x or 0):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
     except Exception:
         return "0,00"
+
+
+# Hora comercial de Perú para mostrar comprobantes y reportes.
+PERU_TZ = ZoneInfo("America/Lima")
+UTC_TZ = ZoneInfo("UTC")
+
+
+def peru_now() -> datetime:
+    return datetime.now(PERU_TZ)
+
+
+def peru_today() -> date:
+    return peru_now().date()
+
+
+def _to_peru_dt(value):
+    try:
+        dt = pd.to_datetime(value, errors="coerce")
+        if pd.isna(dt):
+            return None
+        py = dt.to_pydatetime()
+        # Neon/Streamlit normalmente guarda CURRENT_TIMESTAMP en UTC sin zona.
+        # Para presentación comercial lo mostramos en America/Lima.
+        if py.tzinfo is None:
+            py = py.replace(tzinfo=UTC_TZ)
+        return py.astimezone(PERU_TZ)
+    except Exception:
+        return None
+
+
+def fmt_date(value) -> str:
+    dt = _to_peru_dt(value)
+    return dt.strftime("%d/%m/%Y") if dt else str(value or "")
+
+
+def fmt_time(value) -> str:
+    dt = _to_peru_dt(value)
+    if not dt:
+        return ""
+    return dt.strftime("%I:%M %p").replace("AM", "a. m.").replace("PM", "p. m.")
+
+
+def fmt_dt(value) -> str:
+    dt = _to_peru_dt(value)
+    if not dt:
+        return str(value or "")
+    return dt.strftime("%d/%m/%Y %I:%M %p").replace("AM", "a. m.").replace("PM", "p. m.")
 
 
 def esc(x):
@@ -585,10 +633,10 @@ def clear_report_cache():
 # ESTILOS
 # ============================================================
 def inject_css():
-    color = get_setting("color_principal", "#E49A86") or "#E49A86"
+    color = get_setting("color_principal", "#E8A06D") or "#E8A06D"
     st.markdown(f"""
     <style>
-    :root {{ --primary:{color}; --warm:#E49A86; --warm-dark:#C87966; --dark:#0f172a; --muted:#64748b; --line:#e5e7eb; --bg:#f7f4f2; --danger:#b42318; --ok:#16a34a; }}
+    :root {{ --primary:{color}; --warm:#E8A06D; --warm-dark:#B96D45; --dark:#0f172a; --muted:#64748b; --line:#e5e7eb; --bg:#f7f4f2; --danger:#b42318; --ok:#16a34a; }}
     .stApp {{ background:#f7f4f2; color:#111827; }}
     header[data-testid="stHeader"] {{ background:#0b0f19; }}
     .block-container {{ padding-top:.65rem; padding-bottom:2.0rem; max-width:1480px; }}
@@ -627,7 +675,7 @@ def inject_css():
     div[data-testid="stWidgetLabel"], div[data-testid="stWidgetLabel"] *, label {{ color:#111827 !important; opacity:1 !important; font-weight:800 !important; }}
     .stMarkdown:not(.clomar-hero) p, .stMarkdown:not(.clomar-hero) span {{ color:inherit; }}
     .stButton > button, .stDownloadButton > button {{ border-radius:12px !important; min-height:44px; font-weight:900 !important; color:#111827 !important; background:#ffffff !important; border:1px solid #cbd5e1 !important; }}
-    .stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"] {{ background:var(--warm) !important; color:#fff !important; border:1px solid var(--warm-dark) !important; box-shadow:0 8px 18px rgba(228,154,134,.22) !important; }}
+    .stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"] {{ background:var(--warm) !important; color:#fff !important; border:1px solid var(--warm-dark) !important; box-shadow:0 8px 18px rgba(232,160,109,.26) !important; }}
     .stButton > button[kind="primary"] *, .stDownloadButton > button[kind="primary"] * {{ color:#fff !important; }}
     .stButton > button:hover, .stDownloadButton > button:hover {{ filter:brightness(.98); border-color:var(--warm-dark) !important; }}
     div[data-testid="stAlert"] {{ border-radius:14px; color:#111827 !important; }}
@@ -848,10 +896,10 @@ def add_product_button(r, keyprefix="add"):
 
 
 def fmt_dt(v):
-    try:
-        return pd.to_datetime(v).strftime("%d/%m/%Y %H:%M")
-    except Exception:
+    dt = _to_peru_dt(v)
+    if not dt:
         return str(v or "")
+    return dt.strftime("%d/%m/%Y %I:%M %p").replace("AM", "a. m.").replace("PM", "p. m.")
 
 
 def print_button_component(label="🖨️ Imprimir"):
@@ -909,15 +957,15 @@ def render_receipt(id_venta: int):
       <div class='ticket-top'>
         {icon_html}
         <h1 class='ticket-store'>{esc(cfg.get('store_name') or APP_NAME_DEFAULT).upper()}</h1>
-        <div class='ticket-kind'>Tienda multirrubro · Comprobante de venta</div>
+        <div class='ticket-kind'>Tienda multirrubro · Boleta de venta interna</div>
       </div>
       <div class='ticket-body'>
         <div style='display:flex;justify-content:space-between;gap:14px;align-items:flex-start'>
           <div>{logo_html}<div class='ticket-label'>Datos comerciales</div><div style='font-weight:800'>{direccion or '-'}</div><div style='color:#64748b'>WhatsApp: {telefono_tienda or '-'}</div></div>
-          <div style='text-align:right'><span class='chip chip-dark'>COMPROBANTE</span><div class='ticket-value'>{comprobante}</div><div class='ticket-sub'>{fecha}</div></div>
+          <div style='text-align:right'><span class='chip chip-dark'>BOLETA DE VENTA</span><div class='ticket-value'>{comprobante}</div><div class='ticket-sub'>{fecha}</div></div>
         </div>
         <div class='ticket-grid'>
-          <div class='ticket-box-mini'><div class='ticket-label'>Venta N.°</div><div class='ticket-value'>{comprobante}</div></div>
+          <div class='ticket-box-mini'><div class='ticket-label'>Boleta N.°</div><div class='ticket-value'>{comprobante}</div></div>
           <div class='ticket-box-mini'><div class='ticket-label'>Fecha / hora</div><div class='ticket-value'>{fecha}</div></div>
         </div>
         <div class='ticket-section-title'>Datos de la venta</div>
@@ -984,7 +1032,7 @@ def generate_receipt_pdf(id_venta: int):
             pass
     header_data.append([icon_cell])
     header_data.append([Paragraph(str(cfg.get('store_name') or APP_NAME_DEFAULT).upper(), title_white)])
-    header_data.append([Paragraph('Tienda multirrubro · Comprobante de venta', subtitle_white)])
+    header_data.append([Paragraph('Tienda multirrubro · Boleta de venta interna', subtitle_white)])
     header_tbl = Table(header_data, colWidths=[16.8*cm])
     header_tbl.setStyle(TableStyle([
         ('BACKGROUND',(0,0),(-1,-1), colors.HexColor('#111827')),
@@ -1109,9 +1157,9 @@ def page_panel_dueno():
         return
     c1, c2 = st.columns(2)
     with c1:
-        desde = st.date_input("Desde", date.today(), key="pd_desde")
+        desde = st.date_input("Desde", peru_today(), key="pd_desde")
     with c2:
-        hasta = st.date_input("Hasta", date.today(), key="pd_hasta")
+        hasta = st.date_input("Hasta", peru_today(), key="pd_hasta")
     ventas = ventas_periodo(desde, hasta)
     detalle = detalle_productos_vendidos(desde, hasta)
     productos = productos_con_stock()
@@ -1290,7 +1338,7 @@ def page_ventas():
                     fecha_venc = None
                 else:
                     monto_pagado = st.number_input("Pago inicial", min_value=0.0, max_value=float(total), value=0.0, step=1.0)
-                    fecha_venc = st.date_input("Fecha de vencimiento", date.today() + timedelta(days=15))
+                    fecha_venc = st.date_input("Fecha de vencimiento", peru_today() + timedelta(days=15))
                 saldo = max(total - monto_pagado, 0)
                 vuelto = max(monto_pagado - total, 0)
                 obs = st.text_area("Observación", placeholder="Entrega, nota interna, pedido...")
@@ -1314,7 +1362,7 @@ def page_ventas():
                 st.error("En contado, el monto recibido debe cubrir el total. Si quedará deuda, cambia a Crédito."); return
             if tipo_venta == "Crédito" and opciones_cliente[cliente_nombre] is None:
                 st.error("Para vender a crédito debes seleccionar un cliente registrado."); return
-            u=current_user(); comprobante=f"V{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            u=current_user(); comprobante=f"V{peru_now().strftime('%Y%m%d%H%M%S')}"
             estado_pago = "Pagada" if saldo <= 0 else ("Parcial" if monto_pagado > 0 else "Pendiente")
             metodo_final = metodo_pago if tipo_venta == "Contado" else ("Crédito" if monto_pagado <= 0 else f"Crédito + {metodo_pago}")
             try:
@@ -1375,9 +1423,9 @@ def page_productos():
         if fil.empty:
             st.info("No hay productos.")
         else:
-            cols = st.columns(3)
+            cols = st.columns(4)
             for i, (_, r) in enumerate(fil.iterrows()):
-                with cols[i % 3]:
+                with cols[i % 4]:
                     st.markdown(product_card_html(r, show_cost=is_admin(), show_stock=True), unsafe_allow_html=True)
         if not is_admin():
             st.info("Vista de vendedor: puedes consultar productos, precios y stock. La creación y edición quedan reservadas al administrador.")
@@ -1473,7 +1521,6 @@ def page_productos():
                     st.dataframe(df.head(20), use_container_width=True)
                     if st.button("Importar / actualizar productos", type="primary", use_container_width=True):
                         creados = actualizados = categorias_creadas = 0
-                        pre_depurados = merge_duplicate_products_by_code()
                         with ENGINE.begin() as conn:
                             for _, row in df.iterrows():
                                 codigo = normalize_code(row.get("codigo"))
@@ -1509,7 +1556,7 @@ def page_productos():
                                 delta = stock - float(current_stock)
                                 if abs(delta) > 0.0001:
                                     conn.execute(text("INSERT INTO movimientos_stock (id_producto,tipo,cantidad,costo_unitario,referencia,id_usuario,observacion) VALUES (:id,'AJUSTE',:cant,:cu,'Importación Excel',:uid,'Ajuste de stock desde Excel')"), {"id": idp, "cant": delta, "cu": costo, "uid": current_user()["id_usuario"]})
-                        depurados = pre_depurados + merge_duplicate_products_by_code()
+                        depurados = merge_duplicate_products_by_code()
                         clear_product_cache()
                         st.success(f"Importación terminada. Creados: {creados}. Actualizados: {actualizados}. Categorías nuevas: {categorias_creadas}. Duplicados depurados: {depurados}.")
                         st.rerun()
@@ -1554,9 +1601,9 @@ def page_catalogo_clientes(public=False):
         with b3:
             st.link_button("💬 WhatsApp tienda", wa_link(), use_container_width=True)
         st.caption(f"Productos visibles: {len(fil)}. El catálogo no muestra costos internos.")
-    cols = st.columns(3)
+    cols = st.columns(4)
     for i, (_, r) in enumerate(fil.iterrows()):
-        with cols[i % 3]:
+        with cols[i % 4]:
             st.markdown(product_card_html(r, show_cost=False, show_stock=False, whatsapp=True), unsafe_allow_html=True)
 
 
@@ -1674,7 +1721,7 @@ def page_creditos():
     vencidas = 0
     if not pendientes.empty and "fecha_vencimiento" in pendientes.columns:
         fv = pd.to_datetime(pendientes["fecha_vencimiento"], errors="coerce").dt.date
-        vencidas = int(((fv < date.today()) & pendientes["saldo_pendiente"].astype(float).gt(0)).sum())
+        vencidas = int(((fv < peru_today()) & pendientes["saldo_pendiente"].astype(float).gt(0)).sum())
     c1,c2,c3 = st.columns(3)
     with c1: kpi("Total por cobrar", money(total_pendiente), "Saldo pendiente")
     with c2: kpi("Ventas pendientes", str(len(pendientes)), "Créditos abiertos")
@@ -1753,7 +1800,7 @@ def page_caja():
     hero("Caja", "Movimientos, ingresos, egresos y cierre del día.", "💰")
     if not is_admin():
         st.warning("Solo administrador puede ver caja."); return
-    f = st.date_input("Fecha", date.today())
+    f = st.date_input("Fecha", peru_today())
     caja = query_df("SELECT * FROM caja WHERE DATE(fecha)=:f AND COALESCE(anulada,0)=0 ORDER BY fecha DESC", {"f": str(f)})
     ingresos = caja[caja["tipo"].astype(str).str.lower().eq("ingreso")]["monto"].sum() if not caja.empty else 0
     egresos = caja[caja["tipo"].astype(str).str.lower().eq("egreso")]["monto"].sum() if not caja.empty else 0
@@ -1779,8 +1826,8 @@ def page_reportes():
     if not is_admin():
         st.warning("Solo administrador puede ver reportes."); return
     c1,c2=st.columns(2)
-    with c1: desde=st.date_input("Desde", date.today()-timedelta(days=7), key="repd")
-    with c2: hasta=st.date_input("Hasta", date.today(), key="reph")
+    with c1: desde=st.date_input("Desde", peru_today()-timedelta(days=7), key="repd")
+    with c2: hasta=st.date_input("Hasta", peru_today(), key="reph")
     ventas=ventas_periodo(desde,hasta); detalle=detalle_productos_vendidos(desde,hasta)
     if ventas.empty:
         st.info("No hay ventas en el rango."); return
@@ -2049,6 +2096,192 @@ def inject_css_v25_5():
     </style>
     """, unsafe_allow_html=True)
 
+
+# ============================================================
+# V25.6 OVERRIDES: contraste cálido, panel por vendedor, responsive y reportes claros
+# ============================================================
+def inject_css_v25_6():
+    st.markdown("""
+    <style>
+      :root { --warm:#E8A06D; --warm-dark:#B96D45; --warm-soft:#FFF3EA; }
+      .stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"] {
+        background:linear-gradient(135deg,#F2B37F,#E8A06D) !important;
+        border-color:#B96D45 !important;
+        color:#111827 !important;
+        box-shadow:0 8px 18px rgba(232,160,109,.28) !important;
+      }
+      .stButton > button[kind="primary"] *, .stDownloadButton > button[kind="primary"] * { color:#111827 !important; opacity:1 !important; }
+      .stLinkButton a, .stLinkButton a *, div[data-testid="stLinkButton"] a, div[data-testid="stLinkButton"] a * {
+        color:#111827 !important; opacity:1 !important; font-weight:900 !important;
+      }
+      .stLinkButton a, div[data-testid="stLinkButton"] a { background:#ffffff !important; border:1px solid #cbd5e1 !important; border-radius:12px !important; min-height:44px; }
+      .chip-dark, .chip-dark * { color:#fff !important; background:#111827 !important; }
+      .chip-red { background:#fff3ed !important; color:#9a3412 !important; border-color:#fed7aa !important; }
+      .product-card { min-height:265px !important; padding:14px !important; border-radius:18px !important; }
+      .product-img-wrap { height:145px !important; border-radius:14px !important; }
+      .product-name { font-size:16px !important; min-height:42px !important; }
+      .product-price { font-size:24px !important; }
+      .product-desc { max-height:38px; overflow:hidden; }
+      .clomar-table td, .clomar-table th { color:#111827 !important; }
+      .js-plotly-plot .plotly, .js-plotly-plot .main-svg { background:#fff !important; }
+      .clomar-hero { background:linear-gradient(135deg,#111827,#1e293b) !important; }
+      .clomar-hero, .clomar-hero * { color:#fff !important; opacity:1 !important; }
+      @media (max-width: 900px) {
+        .block-container { padding-left:.55rem !important; padding-right:.55rem !important; }
+        .clomar-hero { padding:14px 16px !important; border-radius:0 0 16px 16px !important; }
+        .clomar-hero h1 { font-size:24px !important; }
+        .clomar-hero p { font-size:13px !important; }
+        .kpi-card { padding:14px !important; }
+        .kpi-value { font-size:26px !important; }
+        .product-card { min-height:auto !important; }
+        .product-img-wrap { height:150px !important; }
+      }
+      @media print {
+        @page { size:80mm auto; margin:2mm; }
+        header[data-testid="stHeader"], section[data-testid="stSidebar"], div[data-testid="stToolbar"], .no-print, .stButton, .stDownloadButton, iframe { display:none !important; }
+        #ticket-print-area { width:76mm !important; max-width:76mm !important; margin:0 auto !important; }
+        .ticket-pro { box-shadow:none !important; border:0 !important; border-radius:0 !important; }
+        .ticket-top { padding:6mm 4mm !important; }
+        .ticket-body { padding:4mm !important; }
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def _vendor_summary(ventas: pd.DataFrame, detalle: pd.DataFrame) -> pd.DataFrame:
+    if ventas.empty:
+        return pd.DataFrame()
+    base = ventas.copy()
+    base["vendedor_nombre"] = base["vendedor_nombre"].fillna("Sin vendedor")
+    res = base.groupby("vendedor_nombre", as_index=False).agg(
+        comprobantes=("id_venta", "count"),
+        total_venta=("total_venta", "sum"),
+        cobrado=("monto_pagado", "sum"),
+        saldo=("saldo_pendiente", "sum"),
+    )
+    if detalle is not None and not detalle.empty:
+        util = detalle.groupby("vendedor", as_index=False).agg(utilidad=("utilidad", "sum"), productos=("cantidad", "sum"))
+        res = res.merge(util, left_on="vendedor_nombre", right_on="vendedor", how="left").drop(columns=["vendedor"], errors="ignore")
+    if "utilidad" not in res.columns:
+        res["utilidad"] = 0
+    if "productos" not in res.columns:
+        res["productos"] = 0
+    res["ticket_promedio"] = res["total_venta"] / res["comprobantes"].replace(0, 1)
+    return res.sort_values("total_venta", ascending=False)
+
+
+def page_panel_dueno():
+    hero("Panel del dueño", "Control rápido de ventas, caja, stock y rendimiento por vendedor.", "📊")
+    c1, c2 = st.columns(2)
+    with c1:
+        fecha_desde = st.date_input("Desde", peru_today(), key="pd_desde_v256")
+    with c2:
+        fecha_hasta = st.date_input("Hasta", peru_today(), key="pd_hasta_v256")
+    ventas = ventas_periodo(fecha_desde, fecha_hasta)
+    detalle = detalle_productos_vendidos(fecha_desde, fecha_hasta)
+    productos = productos_con_stock()
+    caja = query_df("SELECT * FROM caja WHERE DATE(fecha) BETWEEN :d AND :h AND COALESCE(anulada,0)=0", {"d": str(fecha_desde), "h": str(fecha_hasta)})
+    total_ventas = float(ventas["total_venta"].sum()) if not ventas.empty else 0
+    utilidad = float(detalle["utilidad"].sum()) if not detalle.empty else 0
+    ticket = total_ventas / len(ventas) if len(ventas) else 0
+    ingresos = caja[caja["tipo"].astype(str).str.lower().eq("ingreso")]["monto"].sum() if not caja.empty else 0
+    egresos = caja[caja["tipo"].astype(str).str.lower().eq("egreso")]["monto"].sum() if not caja.empty else 0
+    a,b,c,d = st.columns(4)
+    with a: kpi("Ventas", money(total_ventas), f"{len(ventas)} comprobantes")
+    with b: kpi("Utilidad estimada", money(utilidad), "Según costo registrado")
+    with c: kpi("Ticket promedio", money(ticket), "Promedio por venta")
+    with d: kpi("Caja neta", money(ingresos-egresos), "Ingresos - egresos")
+
+    resumen = _vendor_summary(ventas, detalle)
+    st.subheader("Ventas por vendedor")
+    if resumen.empty:
+        st.info("No hay ventas por vendedor en el período.")
+    else:
+        show = resumen.copy()
+        show["total_fmt"] = show["total_venta"].apply(money)
+        show["cobrado_fmt"] = show["cobrado"].apply(money)
+        show["saldo_fmt"] = show["saldo"].apply(money)
+        show["utilidad_fmt"] = show["utilidad"].apply(money)
+        html_table(show, ["vendedor_nombre","comprobantes","productos","total_fmt","cobrado_fmt","saldo_fmt","utilidad_fmt"], ["Vendedor","Ventas","Unid.","Total","Cobrado","Crédito","Utilidad"], 20)
+        figv = px.bar(resumen, x="vendedor_nombre", y="total_venta", text="total_venta", title="Total vendido por vendedor")
+        figv.update_traces(texttemplate="S/ %{text:,.0f}", textposition="outside", marker_color="#E8A06D")
+        figv.update_layout(template="plotly_white", plot_bgcolor="white", paper_bgcolor="white", font_color="#111827", title_font_color="#111827", margin=dict(l=20,r=20,t=50,b=20))
+        figv.update_xaxes(color="#111827", gridcolor="#e5e7eb")
+        figv.update_yaxes(color="#111827", gridcolor="#e5e7eb")
+        st.plotly_chart(figv, use_container_width=True)
+
+    x1,x2 = st.columns([1.35,1])
+    with x1:
+        st.subheader("Ventas recientes")
+        if ventas.empty:
+            st.info("Todavía no hay ventas en el período.")
+        else:
+            vv = ventas.copy()
+            vv["fecha_fmt"] = vv["fecha"].apply(fmt_dt)
+            vv["total_fmt"] = vv["total_venta"].apply(money)
+            html_table(vv, ["comprobante","fecha_fmt","cliente","vendedor_nombre","metodo_pago","total_fmt"], ["Comprobante","Fecha Perú","Cliente","Vendedor","Pago","Total"], 10)
+    with x2:
+        st.subheader("Stock crítico")
+        crit = productos[productos["stock_actual"].astype(float) <= productos["stock_minimo"].astype(float)] if not productos.empty else pd.DataFrame()
+        if crit.empty:
+            st.success("Sin productos críticos.")
+        else:
+            for _, r in crit.head(10).iterrows():
+                st.markdown(f"<span class='chip chip-red'>⚠️ {esc(r['nombre_producto'])} · Stock {num(r['stock_actual'])}</span>", unsafe_allow_html=True)
+
+
+def page_reportes():
+    hero("Reportes", "Ventas por fecha, vendedor, producto, método de pago y créditos.", "📈")
+    if not is_admin():
+        st.warning("Solo administrador puede ver reportes."); return
+    c1,c2=st.columns(2)
+    with c1: desde=st.date_input("Desde", peru_today()-timedelta(days=7), key="repd_v256")
+    with c2: hasta=st.date_input("Hasta", peru_today(), key="reph_v256")
+    ventas=ventas_periodo(desde,hasta); detalle=detalle_productos_vendidos(desde,hasta)
+    if ventas.empty:
+        st.info("No hay ventas en el rango."); return
+    resumen = _vendor_summary(ventas, detalle)
+    st.subheader("Resumen por vendedor")
+    if not resumen.empty:
+        show = resumen.copy()
+        show["total_fmt"] = show["total_venta"].apply(money)
+        show["cobrado_fmt"] = show["cobrado"].apply(money)
+        show["saldo_fmt"] = show["saldo"].apply(money)
+        show["ticket_fmt"] = show["ticket_promedio"].apply(money)
+        html_table(show, ["vendedor_nombre","comprobantes","total_fmt","cobrado_fmt","saldo_fmt","ticket_fmt"], ["Vendedor","Ventas","Total","Cobrado","Crédito","Ticket prom."], 100)
+        fig = px.bar(resumen, x="vendedor_nombre", y="total_venta", color="vendedor_nombre", title="Ventas por vendedor")
+        fig.update_layout(template="plotly_white", plot_bgcolor="white", paper_bgcolor="white", font_color="#111827", showlegend=False, margin=dict(l=20,r=20,t=50,b=20))
+        fig.update_xaxes(color="#111827", gridcolor="#e5e7eb")
+        fig.update_yaxes(color="#111827", gridcolor="#e5e7eb")
+        st.plotly_chart(fig, use_container_width=True)
+    ventas2 = ventas.copy()
+    ventas2["dia"] = ventas2["fecha"].apply(lambda x: _to_peru_dt(x).date() if _to_peru_dt(x) else pd.to_datetime(x).date())
+    diario = ventas2.groupby("dia", as_index=False)["total_venta"].sum()
+    fig1 = px.line(diario, x="dia", y="total_venta", markers=True, title="Ventas por día")
+    fig1.update_traces(line_color="#E8A06D", marker_color="#B96D45")
+    fig1.update_layout(template="plotly_white", plot_bgcolor="white", paper_bgcolor="white", font_color="#111827", margin=dict(l=20,r=20,t=50,b=20))
+    fig1.update_xaxes(color="#111827", gridcolor="#e5e7eb")
+    fig1.update_yaxes(color="#111827", gridcolor="#e5e7eb")
+    st.plotly_chart(fig1, use_container_width=True)
+    a,b=st.columns(2)
+    with a:
+        metodo=ventas.groupby("metodo_pago", as_index=False)["total_venta"].sum()
+        fig2=px.pie(metodo, names="metodo_pago", values="total_venta", title="Métodos de pago")
+        fig2.update_layout(template="plotly_white", paper_bgcolor="white", font_color="#111827", margin=dict(l=20,r=20,t=50,b=20))
+        st.plotly_chart(fig2, use_container_width=True)
+    with b:
+        if not detalle.empty:
+            top = detalle.groupby("producto", as_index=False)["total_vendido"].sum().sort_values("total_vendido", ascending=False).head(10)
+            fig3=px.bar(top, x="total_vendido", y="producto", orientation="h", title="Productos más vendidos")
+            fig3.update_layout(template="plotly_white", plot_bgcolor="white", paper_bgcolor="white", font_color="#111827", margin=dict(l=20,r=20,t=50,b=20))
+            fig3.update_xaxes(color="#111827", gridcolor="#e5e7eb")
+            fig3.update_yaxes(color="#111827", gridcolor="#e5e7eb")
+            st.plotly_chart(fig3, use_container_width=True)
+    st.subheader("Detalle de productos vendidos")
+    if not detalle.empty:
+        dd=detalle.copy(); dd["total"]=dd["total_vendido"].apply(money); dd["utilidad_fmt"]=dd["utilidad"].apply(money)
+        html_table(dd, ["vendedor","producto","cantidad","total","utilidad_fmt"], ["Vendedor","Producto","Cantidad","Total","Utilidad"], 200)
+
 # ============================================================
 # ARRANQUE
 # ============================================================
@@ -2061,6 +2294,7 @@ except Exception as e:
 
 inject_css()
 inject_css_v25_5()
+inject_css_v25_6()
 
 # Catálogo público por URL
 try:
