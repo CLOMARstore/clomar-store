@@ -28,7 +28,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V29.1 POS rápido sin lag - buscador desplegable y compras automáticas"
+APP_VERSION = "V29.3 compacta y fluida - paneles sin espacios vacíos + ping liviano"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -5174,6 +5174,278 @@ def page_ventas():
                 st.error("No se pudo registrar la venta."); st.exception(e)
 
 
+
+
+# ============================================================
+# V29.3 - COMPACTA + FLUIDA + SIN ESPACIOS VACÍOS
+# ============================================================
+def inject_css_v29_3():
+    """Ajustes finales de densidad visual para reducir espacios muertos y acelerar la lectura."""
+    st.markdown("""
+    <style>
+      /* Menos aire muerto arriba y entre bloques */
+      .block-container { padding-top: .75rem !important; padding-bottom: 1.25rem !important; }
+      .clomar-hero { padding: 14px 18px !important; margin: 0 0 12px 0 !important; border-radius: 18px !important; }
+      .clomar-hero h1 { font-size: 1.45rem !important; margin: 0 !important; line-height: 1.15 !important; }
+      .clomar-hero p { margin-top: 5px !important; font-size: .88rem !important; }
+      .kpi-card { padding: 14px 16px !important; border-radius: 18px !important; min-height: 94px !important; }
+      .kpi-label { font-size: 11px !important; }
+      .kpi-value { font-size: 1.65rem !important; line-height: 1.1 !important; }
+      h2, h3 { margin-top: .55rem !important; margin-bottom: .45rem !important; }
+      [data-testid="stVerticalBlock"] { gap: .65rem !important; }
+      div[data-testid="stHorizontalBlock"] { gap: .75rem !important; }
+
+      /* Tarjetas compactas para panel y reportes */
+      .compact-grid-3 { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:10px 0 12px; align-items:stretch; }
+      .compact-grid-2 { display:grid; grid-template-columns:1.25fr .85fr; gap:12px; margin:10px 0; align-items:start; }
+      .compact-card { background:#fff; border:1px solid #e5e7eb; border-radius:18px; padding:14px 16px; box-shadow:0 8px 20px rgba(15,23,42,.045); min-height:auto !important; }
+      .compact-card h3 { font-size:17px !important; font-weight:950 !important; color:#0f172a !important; margin:0 0 10px !important; }
+      .compact-empty { color:#64748b; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:14px; padding:10px 12px; font-size:13px; font-weight:750; }
+      .compact-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:8px 0 5px; font-weight:900; color:#0f172a; font-size:13px; }
+      .compact-row small { color:#64748b; font-weight:800; }
+      .compact-track { height:8px; background:#e5e7eb; border-radius:999px; overflow:hidden; }
+      .compact-fill { height:8px; background:#0f172a; border-radius:999px; }
+      .compact-table-wrap { max-height:420px; overflow:auto; border-radius:16px; border:1px solid #e5e7eb; }
+      .clomar-table { margin-top:0 !important; }
+      .clomar-table th { position:sticky; top:0; background:#f8fafc !important; z-index:2; }
+
+      /* Ocultar huecos generados por componentes vacíos */
+      iframe[height="0"], div[data-testid="stIFrame"] iframe[height="0"] { display:none !important; height:0 !important; }
+      .element-container:has(iframe[height="0"]) { display:none !important; height:0 !important; margin:0 !important; padding:0 !important; }
+
+      /* Expander más compacto */
+      [data-testid="stExpander"] { border-radius:16px !important; border-color:#e5e7eb !important; }
+      [data-testid="stExpander"] details summary { padding:10px 14px !important; font-weight:900 !important; }
+
+      /* Responsive */
+      @media(max-width:1100px){ .compact-grid-3,.compact-grid-2 { grid-template-columns:1fr !important; } }
+      @media(max-width:700px){ .kpi-value{font-size:1.35rem !important}.compact-card{padding:12px !important}.block-container{padding-left:.65rem !important;padding-right:.65rem !important;} }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+@st.cache_data(ttl=90, show_spinner=False)
+def _ventas_rango_todas_fast(desde, hasta) -> pd.DataFrame:
+    """Consulta ligera cacheada para panel/reportes. Evita recalcular cada clic dentro de Streamlit."""
+    return query_df("""
+        SELECT v.*, COALESCE(c.nombre_cliente,'Cliente general') AS cliente,
+               COALESCE(c.telefono,'') AS cliente_telefono,
+               COALESCE(c.documento,'') AS cliente_documento
+        FROM ventas v
+        LEFT JOIN clientes c ON c.id_cliente=v.id_cliente
+        WHERE DATE(v.fecha) BETWEEN :d AND :h
+        ORDER BY v.fecha DESC
+    """, {"d": str(desde), "h": str(hasta)})
+
+
+def _ventas_rango_todas(desde, hasta) -> pd.DataFrame:
+    return _ventas_rango_todas_fast(desde, hasta)
+
+
+def _compact_bar_card(df: pd.DataFrame, label_col: str, value_col: str, title: str, limit: int = 6):
+    """Reporte compacto sin gráficos pesados ni cajas altas vacías."""
+    st.markdown("<div class='compact-card'>", unsafe_allow_html=True)
+    st.markdown(f"<h3>{esc(title)}</h3>", unsafe_allow_html=True)
+    if df is None or df.empty or label_col not in df.columns or value_col not in df.columns:
+        st.markdown("<div class='compact-empty'>Sin datos para mostrar.</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+    tmp = df[[label_col, value_col]].copy()
+    tmp[value_col] = pd.to_numeric(tmp[value_col], errors="coerce").fillna(0)
+    tmp = tmp[tmp[value_col] > 0].sort_values(value_col, ascending=False).head(limit)
+    if tmp.empty:
+        st.markdown("<div class='compact-empty'>Sin movimiento en el rango.</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+    maxv = float(tmp[value_col].max()) or 1
+    html = []
+    for _, r in tmp.iterrows():
+        label = str(r[label_col] or "Sin dato")[:32]
+        val = float(r[value_col] or 0)
+        pct = max(4, min(100, (val / maxv) * 100))
+        html.append(f"""
+          <div class='compact-row'><span>{esc(label)}</span><small>{money(val)}</small></div>
+          <div class='compact-track'><div class='compact-fill' style='width:{pct:.1f}%'></div></div>
+        """)
+    st.markdown("".join(html), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _kpi_row(total, cobrado, credito, extra_label, extra_value, extra_sub=""):
+    a, b, c, d = st.columns(4)
+    with a: kpi("Ventas", money(total), "Total vendido")
+    with b: kpi("Cobrado", money(cobrado), "Ingreso recibido")
+    with c: kpi("Crédito", money(credito), "Saldo pendiente")
+    with d: kpi(extra_label, money(extra_value), extra_sub)
+
+
+def page_panel_dueno():
+    ensure_v25_11_schema()
+    hero("Panel del dueño", "Vista rápida sin espacios vacíos: ventas, caja, créditos y stock crítico.", "📊")
+    if not is_admin():
+        st.warning("Solo administrador puede ver el panel del dueño.")
+        return
+
+    with st.container():
+        f1, f2 = st.columns([1, 1])
+        with f1:
+            desde = st.date_input("Desde", peru_today(), key="panel_desde_v293")
+        with f2:
+            hasta = st.date_input("Hasta", peru_today(), key="panel_hasta_v293")
+
+    ventas_all = _ventas_rango_todas_fast(desde, hasta)
+    ventas = _filter_ventas_df(ventas_all, estado="Vigentes")
+    caja = query_df("SELECT tipo, metodo_pago, monto FROM caja WHERE DATE(fecha) BETWEEN :d AND :h AND COALESCE(anulada,0)=0", {"d": str(desde), "h": str(hasta)})
+
+    for col in ["total_venta", "monto_pagado", "saldo_pendiente"]:
+        if not ventas.empty and col in ventas.columns:
+            ventas[col] = pd.to_numeric(ventas[col], errors="coerce").fillna(0)
+    total = float(ventas["total_venta"].sum()) if not ventas.empty else 0
+    cobrado = float(ventas["monto_pagado"].sum()) if not ventas.empty else 0
+    credito = float(ventas["saldo_pendiente"].sum()) if not ventas.empty else 0
+    if not caja.empty:
+        caja["monto"] = pd.to_numeric(caja["monto"], errors="coerce").fillna(0)
+        ingresos = float(caja[caja["tipo"].astype(str).str.lower().eq("ingreso")]["monto"].sum())
+        egresos = float(caja[caja["tipo"].astype(str).str.lower().eq("egreso")]["monto"].sum())
+    else:
+        ingresos = egresos = 0.0
+    _kpi_row(total, cobrado, credito, "Caja neta", ingresos - egresos, "Ingresos - egresos")
+
+    if ventas.empty:
+        st.info("Sin ventas vigentes en el rango seleccionado.")
+    else:
+        vend = ventas.groupby("vendedor_nombre", as_index=False).agg(total=("total_venta", "sum"))
+        met = ventas.groupby("metodo_pago", as_index=False).agg(total=("total_venta", "sum"))
+        day = ventas.copy(); day["dia"] = day["fecha"].apply(fmt_date)
+        day = day.groupby("dia", as_index=False).agg(total=("total_venta", "sum"))
+        g1, g2, g3 = st.columns(3)
+        with g1: _compact_bar_card(vend, "vendedor_nombre", "total", "Ventas por vendedor", 5)
+        with g2: _compact_bar_card(met, "metodo_pago", "total", "Métodos de pago", 6)
+        with g3: _compact_bar_card(day, "dia", "total", "Ventas por día", 6)
+
+    c1, c2 = st.columns([1.35, .85])
+    with c1:
+        st.markdown("### Ventas recientes")
+        recent = ventas.head(8).copy() if not ventas.empty else pd.DataFrame()
+        if not recent.empty:
+            recent["fecha_fmt"] = recent["fecha"].apply(fmt_dt)
+            recent["total_fmt"] = recent["total_venta"].apply(money)
+            st.markdown("<div class='compact-table-wrap'>", unsafe_allow_html=True)
+            html_table(recent, ["comprobante", "fecha_fmt", "cliente", "vendedor_nombre", "metodo_pago", "total_fmt"], ["Comprobante", "Fecha", "Cliente", "Vendedor", "Pago", "Total"], 8)
+            st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.info("Sin ventas recientes.")
+    with c2:
+        st.markdown("### Stock crítico")
+        prod = productos_con_stock()
+        if not prod.empty:
+            stock = pd.to_numeric(prod["stock_actual"], errors="coerce").fillna(0)
+            minimo = pd.to_numeric(prod["stock_minimo"], errors="coerce").fillna(0)
+            crit = prod[stock <= minimo].head(8)
+            if crit.empty:
+                st.success("Sin stock crítico.")
+            else:
+                for _, r in crit.iterrows():
+                    st.markdown(f"<div class='compact-row'><span>⚠ {esc(r['nombre_producto'])}</span><small>Stock {num(r['stock_actual'])}</small></div>", unsafe_allow_html=True)
+        else:
+            st.info("Sin productos registrados.")
+
+
+def page_reportes():
+    ensure_v25_11_schema()
+    hero("Reportes ejecutivos", "Filtros compactos y reportes sin cajas vacías para revisar rápido el negocio.", "📈")
+    if not is_admin():
+        st.warning("Solo administrador puede ver reportes.")
+        return
+
+    f1, f2 = st.columns(2)
+    with f1:
+        desde = st.date_input("Desde", peru_today() - timedelta(days=7), key="rep_desde_v293")
+    with f2:
+        hasta = st.date_input("Hasta", peru_today(), key="rep_hasta_v293")
+
+    ventas_all = _ventas_rango_todas_fast(desde, hasta)
+    if ventas_all.empty:
+        st.info("No hay ventas para el rango seleccionado.")
+        return
+
+    with st.expander("Filtros avanzados", expanded=False):
+        vendedor, metodo, estado, cliente, texto = _ventas_filters("rep_v293", ventas_all)
+    ventas = _filter_ventas_df(ventas_all, vendedor, metodo, estado, cliente, texto)
+
+    if not ventas.empty:
+        ventas["dia_fmt"] = ventas["fecha"].apply(fmt_date)
+        dias = ["Todos"] + sorted(ventas["dia_fmt"].astype(str).unique().tolist())
+        dia_sel = st.selectbox("Día específico", dias, key="rep_dia_v293")
+        if dia_sel != "Todos":
+            ventas = ventas[ventas["dia_fmt"].astype(str).eq(dia_sel)]
+
+    if ventas.empty:
+        st.warning("No hay comprobantes con esos filtros.")
+        return
+
+    for col in ["total_venta", "monto_pagado", "saldo_pendiente"]:
+        ventas[col] = pd.to_numeric(ventas[col], errors="coerce").fillna(0)
+    total = float(ventas["total_venta"].sum())
+    cobrado = float(ventas["monto_pagado"].sum())
+    credito = float(ventas["saldo_pendiente"].sum())
+    promedio = total / max(len(ventas), 1)
+    _kpi_row(total, cobrado, credito, "Promedio", promedio, "Ticket")
+
+    vend = ventas.groupby("vendedor_nombre", as_index=False).agg(total=("total_venta", "sum"), ventas=("id_venta", "count"))
+    met = ventas.groupby("metodo_pago", as_index=False).agg(total=("total_venta", "sum"), ventas=("id_venta", "count"))
+    vday = ventas.copy(); vday["dia"] = vday["fecha"].apply(fmt_date)
+    dia = vday.groupby("dia", as_index=False).agg(total=("total_venta", "sum"))
+
+    g1, g2, g3 = st.columns(3)
+    with g1: _compact_bar_card(vend, "vendedor_nombre", "total", "Ventas por vendedor", 8)
+    with g2: _compact_bar_card(met, "metodo_pago", "total", "Métodos de pago", 8)
+    with g3: _compact_bar_card(dia, "dia", "total", "Ventas por día", 10)
+
+    with st.expander("Productos vendidos", expanded=False):
+        detalle = detalle_productos_vendidos(desde, hasta)
+        if detalle is not None and not detalle.empty:
+            detalle["total_vendido"] = pd.to_numeric(detalle["total_vendido"], errors="coerce").fillna(0)
+            top = detalle.groupby("producto", as_index=False).agg(total=("total_vendido", "sum")).sort_values("total", ascending=False)
+            _compact_bar_card(top, "producto", "total", "Productos vendidos", 12)
+        else:
+            st.info("Sin detalle de productos vendidos.")
+
+    st.markdown("### Detalle de comprobantes")
+    detv = ventas.copy()
+    detv["fecha_fmt"] = detv["fecha"].apply(fmt_dt)
+    detv["estado_real"] = detv.apply(lambda r: "Anulada" if int(float(r.get("anulada") or 0)) == 1 else str(r.get("estado_pago") or ""), axis=1)
+    for col in ["total_venta", "monto_pagado", "saldo_pendiente"]:
+        detv[col + "_fmt"] = detv[col].apply(money)
+    st.markdown("<div class='compact-table-wrap'>", unsafe_allow_html=True)
+    html_table(detv, ["comprobante", "fecha_fmt", "cliente", "vendedor_nombre", "metodo_pago", "total_venta_fmt", "monto_pagado_fmt", "saldo_pendiente_fmt", "estado_real"], ["Comprobante", "Fecha", "Cliente", "Vendedor", "Método", "Total", "Pagado", "Saldo", "Estado"], 150)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    with st.expander("Anular venta / comprobante", expanded=False):
+        st.markdown("<div class='audit-box'>La anulación no borra historial: devuelve stock, revierte caja y marca la venta como ANULADA.</div>", unsafe_allow_html=True)
+        vigentes = _filter_ventas_df(ventas_all, estado="Vigentes")
+        if vigentes.empty:
+            st.info("No hay ventas vigentes para anular en este rango.")
+        else:
+            opts = {f"{r['comprobante']} · {fmt_dt(r['fecha'])} · {r['cliente']} · {money(r['total_venta'])}": int(r["id_venta"]) for _, r in vigentes.iterrows()}
+            with st.form("form_anular_v293"):
+                label = st.selectbox("Selecciona comprobante vigente", list(opts.keys()))
+                motivo = st.text_area("Motivo obligatorio", placeholder="Ej: error de producto, venta duplicada, cliente canceló...")
+                confirmar = st.checkbox("Confirmo que deseo anular esta venta y revertir stock/caja")
+                btn = st.form_submit_button("Anular venta", type="primary", use_container_width=True)
+            if btn:
+                if not confirmar:
+                    st.error("Marca la confirmación antes de anular.")
+                elif not motivo.strip():
+                    st.error("Ingresa el motivo de anulación.")
+                else:
+                    try:
+                        anular_venta(opts[label], motivo)
+                        st.success("Venta anulada. Se revirtió stock y caja según corresponda.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
+
 # ============================================================
 # ARRANQUE
 # ============================================================
@@ -5193,12 +5465,23 @@ inject_css_v25_9()
 inject_css_v25_10()
 inject_css_v25_11()
 inject_css_v26_1()
+inject_css_v29_3()
 
 # Catálogo público por URL
 try:
     qp = dict(st.query_params)
 except Exception:
     qp = {}
+
+# Ping liviano para UptimeRobot / cron-job.org: mantiene despierta la app sin cargar módulos pesados.
+if str(qp.get("ping", "")).lower() in ["1", "true", "ok"]:
+    try:
+        scalar("SELECT 1", default=1)
+    except Exception:
+        pass
+    st.write("OK - Clomar Store activo")
+    st.stop()
+
 if str(qp.get("catalogo", "")).lower() in ["1", "true", "si", "sí"]:
     cfg = cached_settings()
     st.markdown("<div class='public-wrap'>", unsafe_allow_html=True)
