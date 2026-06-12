@@ -28,7 +28,7 @@ try:
 except Exception:
     colors = None
 
-APP_VERSION = "V29.3 compacta y fluida - paneles sin espacios vacíos + ping liviano"
+APP_VERSION = "V29.4 ultra compacta y fluida - sin cajas vacías + menos lag"
 APP_NAME_DEFAULT = "Clomar Store"
 
 st.set_page_config(
@@ -647,7 +647,7 @@ def stock_expr_sql():
     """
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def productos_con_stock_cached():
     return query_df(f"""
         SELECT p.*, COALESCE(c.nombre_categoria,'Sin categoría') AS categoria,
@@ -5016,9 +5016,8 @@ def page_ventas():
 
                 if True:
                     stock = float(r.get("stock_actual") or 0)
-                    candidates = product_image_candidates(r)
-                    img = candidates[0] if candidates else ""
-                    img_html = f"<img class='preview-img' src='{esc(img)}'>" if img else "<div class='preview-img'></div>"
+                    # V29.4: no se carga imagen externa en POS para reducir lag; la imagen queda para Productos/Catálogo.
+                    img_html = "<div class='preview-img preview-noimg'>🛍️</div>"
                     st.markdown(f"""
                     <div class='preview-product'>
                       {img_html}
@@ -5224,7 +5223,7 @@ def inject_css_v29_3():
     """, unsafe_allow_html=True)
 
 
-@st.cache_data(ttl=90, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _ventas_rango_todas_fast(desde, hasta) -> pd.DataFrame:
     """Consulta ligera cacheada para panel/reportes. Evita recalcular cada clic dentro de Streamlit."""
     return query_df("""
@@ -5446,6 +5445,120 @@ def page_reportes():
                     except Exception as e:
                         st.error(str(e))
 
+
+# ============================================================
+# V29.4 - ULTRA COMPACTA + MENOS LAG
+# ============================================================
+def inject_css_v29_4():
+    """Pulido fuerte: elimina hueco superior, compacta tarjetas y evita cajas vacías por HTML abierto."""
+    st.markdown("""
+    <style>
+      /* Quitar barra/espacio Streamlit que genera aire muerto arriba */
+      header[data-testid="stHeader"] { display:none !important; height:0 !important; min-height:0 !important; visibility:hidden !important; }
+      div[data-testid="stToolbar"], div[data-testid="stDecoration"], footer, #MainMenu { display:none !important; visibility:hidden !important; height:0 !important; }
+      .stApp { background:#f7f4f2 !important; }
+      .main .block-container, [data-testid="stAppViewContainer"] .block-container {
+        padding-top:0 !important;
+        padding-bottom:.85rem !important;
+        margin-top:0 !important;
+        max-width:1420px !important;
+      }
+      [data-testid="stAppViewContainer"] { padding-top:0 !important; }
+      [data-testid="stVerticalBlock"] { gap:.42rem !important; }
+      div[data-testid="stHorizontalBlock"] { gap:.58rem !important; }
+      .element-container { margin-bottom:.28rem !important; }
+
+      /* Hero compacto: menos alto y menos separación */
+      .clomar-hero {
+        padding:10px 16px !important;
+        margin:0 0 8px 0 !important;
+        border-radius:16px !important;
+        min-height:0 !important;
+        box-shadow:0 8px 18px rgba(15,23,42,.10) !important;
+      }
+      .clomar-hero h1 { font-size:1.28rem !important; line-height:1.05 !important; margin:0 !important; }
+      .clomar-hero p { font-size:.80rem !important; margin:4px 0 0 !important; }
+
+      /* KPIs y tarjetas más densas */
+      .kpi-card { padding:10px 13px !important; border-radius:15px !important; min-height:72px !important; box-shadow:0 6px 16px rgba(15,23,42,.04) !important; }
+      .kpi-label { font-size:10px !important; letter-spacing:.045em !important; }
+      .kpi-value { font-size:1.42rem !important; margin-top:5px !important; line-height:1.02 !important; }
+      .product-meta { font-size:11px !important; line-height:1.2 !important; }
+      h1,h2,h3 { margin-top:.25rem !important; margin-bottom:.30rem !important; }
+      .card, .pos-panel, .pay-box, .report-card, .compact-card { border-radius:15px !important; padding:12px 14px !important; box-shadow:0 6px 16px rgba(15,23,42,.04) !important; }
+
+      /* POS más bajo y rápido */
+      .pos-panel h3, .compact-card h3 { font-size:1.02rem !important; margin:0 0 6px !important; }
+      .preview-product { grid-template-columns:54px 1fr !important; gap:10px !important; padding:9px !important; border-radius:14px !important; margin:8px 0 !important; }
+      .preview-img { width:54px !important; height:54px !important; border-radius:12px !important; display:flex !important; align-items:center !important; justify-content:center !important; background:#fff7f4 !important; font-size:28px !important; border:1px solid #f1ddd8 !important; object-fit:cover !important; }
+      .preview-title { font-size:14px !important; line-height:1.15 !important; }
+      .preview-meta { font-size:11px !important; }
+      .preview-price { font-size:20px !important; margin-top:3px !important; }
+      .cart-item-pro { padding:8px 10px !important; border-radius:12px !important; margin-bottom:6px !important; }
+      .pos-total-banner { padding:10px 12px !important; border-radius:14px !important; margin:6px 0 9px !important; }
+      .stButton > button, .stDownloadButton > button, [data-testid="stFormSubmitButton"] button { min-height:38px !important; border-radius:10px !important; padding:.35rem .75rem !important; }
+      div[data-testid="stTextInput"] input, div[data-testid="stNumberInput"] input, div[data-testid="stTextArea"] textarea, div[data-testid="stSelectbox"] div[data-baseweb="select"] > div, div[data-testid="stDateInput"] input { min-height:38px !important; }
+
+      /* Tablas y reportes sin cajas gigantes */
+      .compact-grid-3 { gap:9px !important; margin:6px 0 8px !important; }
+      .compact-table-wrap { max-height:315px !important; }
+      .clomar-table th { padding:9px 10px !important; font-size:10px !important; }
+      .clomar-table td { padding:8px 10px !important; font-size:12px !important; }
+      .compact-row { margin:5px 0 3px !important; font-size:12px !important; }
+      .compact-track, .compact-fill { height:6px !important; }
+      .compact-empty { padding:8px 10px !important; font-size:12px !important; }
+
+      /* Sidebar compacta */
+      section[data-testid="stSidebar"] { min-width:250px !important; max-width:285px !important; }
+      section[data-testid="stSidebar"] .stButton button { min-height:38px !important; padding:7px 10px !important; border-radius:12px !important; }
+      .sidebar-logo { margin:4px 0 10px !important; }
+      .sidebar-title { font-size:17px !important; }
+
+      /* Evitar huecos de iframes/componentes vacíos */
+      iframe[height="0"], div[data-testid="stIFrame"] iframe[height="0"], .element-container:has(iframe[height="0"]) { display:none !important; height:0 !important; min-height:0 !important; padding:0 !important; margin:0 !important; }
+      .stSpinner { margin:.25rem 0 !important; }
+
+      @media(max-width:900px){
+        .main .block-container, [data-testid="stAppViewContainer"] .block-container { padding-left:.55rem !important; padding-right:.55rem !important; }
+        .clomar-hero { padding:9px 12px !important; }
+        .kpi-value { font-size:1.25rem !important; }
+        .preview-product { grid-template-columns:48px 1fr !important; }
+        .preview-img { width:48px !important; height:48px !important; }
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def _compact_bar_card(df: pd.DataFrame, label_col: str, value_col: str, title: str, limit: int = 6):
+    """V29.4: renderiza toda la tarjeta en un solo HTML para no crear cajas vacías en Streamlit."""
+    rows_html = ""
+    if df is None or df.empty or label_col not in df.columns or value_col not in df.columns:
+        rows_html = "<div class='compact-empty'>Sin datos para mostrar.</div>"
+    else:
+        tmp = df[[label_col, value_col]].copy()
+        tmp[value_col] = pd.to_numeric(tmp[value_col], errors="coerce").fillna(0)
+        tmp = tmp[tmp[value_col] > 0].sort_values(value_col, ascending=False).head(limit)
+        if tmp.empty:
+            rows_html = "<div class='compact-empty'>Sin movimiento en el rango.</div>"
+        else:
+            maxv = float(tmp[value_col].max()) or 1
+            parts = []
+            for _, r in tmp.iterrows():
+                label = str(r[label_col] or "Sin dato")[:34]
+                val = float(r[value_col] or 0)
+                pct = max(4, min(100, (val / maxv) * 100))
+                parts.append(f"""
+                  <div class='compact-row'><span>{esc(label)}</span><small>{money(val)}</small></div>
+                  <div class='compact-track'><div class='compact-fill' style='width:{pct:.1f}%'></div></div>
+                """)
+            rows_html = "".join(parts)
+    st.markdown(f"""
+      <div class='compact-card'>
+        <h3>{esc(title)}</h3>
+        {rows_html}
+      </div>
+    """, unsafe_allow_html=True)
+
 # ============================================================
 # ARRANQUE
 # ============================================================
@@ -5466,6 +5579,7 @@ inject_css_v25_10()
 inject_css_v25_11()
 inject_css_v26_1()
 inject_css_v29_3()
+inject_css_v29_4()
 
 # Catálogo público por URL
 try:
